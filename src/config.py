@@ -1,0 +1,110 @@
+#neural-inbox1/config.py
+"""
+Configuration settings for Neural Inbox.
+Supports Railway deployment with PostgreSQL.
+"""
+import os
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class DatabaseConfig:
+    """PostgreSQL database configuration."""
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+
+    @property
+    def url(self) -> str:
+        """SQLAlchemy async database URL."""
+        return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+
+    @property
+    def sync_url(self) -> str:
+        """SQLAlchemy sync database URL (for migrations)."""
+        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+
+
+@dataclass
+class TelegramConfig:
+    """Telegram bot configuration."""
+    bot_token: str
+    webapp_url: Optional[str] = None
+
+
+@dataclass
+class OpenAIConfig:
+    """OpenAI API configuration."""
+    api_key: str
+    model: str = "gpt-4o-mini"
+    embedding_model: str = "text-embedding-3-small"
+
+
+@dataclass
+class Config:
+    """Main application configuration."""
+    database: DatabaseConfig
+    telegram: TelegramConfig
+    openai: OpenAIConfig
+
+    debug: bool = False
+    timezone: str = "Asia/Almaty"
+    default_language: str = "ru"
+
+
+def load_config() -> Config:
+    """Load configuration from environment variables."""
+    database_url = os.getenv("DATABASE_URL", "")
+
+    if database_url:
+        # Parse Railway's DATABASE_URL
+        url = database_url.replace("postgresql://", "")
+        user_pass, host_db = url.split("@")
+        user, password = user_pass.split(":")
+        host_port, database = host_db.split("/")
+
+        if ":" in host_port:
+            host, port = host_port.split(":")
+            port = int(port)
+        else:
+            host = host_port
+            port = 5432
+
+        db_config = DatabaseConfig(
+            host=host, port=port, user=user,
+            password=password, database=database
+        )
+    else:
+        db_config = DatabaseConfig(
+            host=os.getenv("DB_HOST", "localhost"),
+            port=int(os.getenv("DB_PORT", "5432")),
+            user=os.getenv("DB_USER", "postgres"),
+            password=os.getenv("DB_PASSWORD", "postgres"),
+            database=os.getenv("DB_NAME", "neural_inbox")
+        )
+
+    telegram_config = TelegramConfig(
+        bot_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
+        webapp_url=os.getenv("WEBAPP_URL")
+    )
+
+    openai_config = OpenAIConfig(
+        api_key=os.getenv("OPENAI_API_KEY", ""),
+        model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+        embedding_model=os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+    )
+
+    return Config(
+        database=db_config,
+        telegram=telegram_config,
+        openai=openai_config,
+        debug=os.getenv("DEBUG", "false").lower() == "true",
+        timezone=os.getenv("TIMEZONE", "Asia/Almaty"),
+        default_language=os.getenv("DEFAULT_LANGUAGE", "ru")
+    )
+
+
+config = load_config()
