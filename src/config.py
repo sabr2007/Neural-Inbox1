@@ -16,16 +16,23 @@ class DatabaseConfig:
     user: str
     password: str
     database: str
+    ssl: bool = False
 
     @property
     def url(self) -> str:
         """SQLAlchemy async database URL."""
-        return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        base = f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        if self.ssl:
+            return f"{base}?ssl=require"
+        return base
 
     @property
     def sync_url(self) -> str:
         """SQLAlchemy sync database URL (for migrations)."""
-        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        base = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
+        if self.ssl:
+            return f"{base}?sslmode=require"
+        return base
 
 
 @dataclass
@@ -60,11 +67,17 @@ def load_config() -> Config:
     database_url = os.getenv("DATABASE_URL", "")
 
     if database_url:
-        # Parse Railway's DATABASE_URL
+        # Parse DATABASE_URL (Railway, Neon, Supabase, etc.)
         url = database_url.replace("postgresql://", "")
         user_pass, host_db = url.split("@")
         user, password = user_pass.split(":")
         host_port, database = host_db.split("/")
+
+        # Handle SSL parameters in query string
+        ssl = False
+        if "?" in database:
+            database, query = database.split("?", 1)
+            ssl = "sslmode=require" in query or "ssl=require" in query
 
         if ":" in host_port:
             host, port = host_port.split(":")
@@ -75,7 +88,7 @@ def load_config() -> Config:
 
         db_config = DatabaseConfig(
             host=host, port=port, user=user,
-            password=password, database=database
+            password=password, database=database, ssl=ssl
         )
     else:
         db_config = DatabaseConfig(
