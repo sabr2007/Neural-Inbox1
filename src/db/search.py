@@ -53,6 +53,10 @@ async def hybrid_search(
     # Format embedding as literal for SQL
     emb_literal = _format_embedding(query_embedding)
 
+    # Build dynamic filter conditions to avoid asyncpg type inference issues with None
+    type_condition = "AND type = :type_filter" if type_filter else ""
+    status_condition = "AND status = :status_filter" if status_filter else ""
+
     # Build the hybrid query with embedding as literal
     sql = text(f"""
         WITH fts_results AS (
@@ -70,8 +74,8 @@ async def hybrid_search(
                     to_tsvector('russian', COALESCE(title, '') || ' ' || COALESCE(content, '') || ' ' || COALESCE(original_input, ''))
                     @@ plainto_tsquery('russian', :query)
                 )
-                AND (:type_filter IS NULL OR type = :type_filter)
-                AND (:status_filter IS NULL OR status = :status_filter)
+                {type_condition}
+                {status_condition}
         ),
         vector_results AS (
             SELECT
@@ -80,8 +84,8 @@ async def hybrid_search(
             FROM items
             WHERE user_id = :user_id
                 AND embedding IS NOT NULL
-                AND (:type_filter IS NULL OR type = :type_filter)
-                AND (:status_filter IS NULL OR status = :status_filter)
+                {type_condition}
+                {status_condition}
             ORDER BY embedding <=> '{emb_literal}'::vector
             LIMIT :vec_limit
         ),
@@ -108,20 +112,22 @@ async def hybrid_search(
         LIMIT :limit
     """)
 
+    # Build params dict dynamically
+    params = {
+        "user_id": user_id,
+        "query": query,
+        "fts_weight": fts_weight,
+        "vector_weight": vector_weight,
+        "vec_limit": limit * 3,
+        "limit": limit
+    }
+    if type_filter:
+        params["type_filter"] = type_filter
+    if status_filter:
+        params["status_filter"] = status_filter
+
     try:
-        result = await session.execute(
-            sql,
-            {
-                "user_id": user_id,
-                "query": query,
-                "type_filter": type_filter,
-                "status_filter": status_filter,
-                "fts_weight": fts_weight,
-                "vector_weight": vector_weight,
-                "vec_limit": limit * 3,
-                "limit": limit
-            }
-        )
+        result = await session.execute(sql, params)
 
         rows = result.fetchall()
         return [
@@ -152,7 +158,11 @@ async def fts_search(
     status_filter: Optional[str] = None
 ) -> List[SearchResult]:
     """Fallback: Full-text search only."""
-    sql = text("""
+    # Build dynamic filter conditions to avoid asyncpg type inference issues with None
+    type_condition = "AND type = :type_filter" if type_filter else ""
+    status_condition = "AND status = :status_filter" if status_filter else ""
+
+    sql = text(f"""
         SELECT
             id,
             title,
@@ -169,23 +179,25 @@ async def fts_search(
                 to_tsvector('russian', COALESCE(title, '') || ' ' || COALESCE(content, '') || ' ' || COALESCE(original_input, ''))
                 @@ plainto_tsquery('russian', :query)
             )
-            AND (:type_filter IS NULL OR type = :type_filter)
-            AND (:status_filter IS NULL OR status = :status_filter)
+            {type_condition}
+            {status_condition}
         ORDER BY score DESC
         LIMIT :limit
     """)
 
+    # Build params dict dynamically
+    params = {
+        "user_id": user_id,
+        "query": query,
+        "limit": limit
+    }
+    if type_filter:
+        params["type_filter"] = type_filter
+    if status_filter:
+        params["status_filter"] = status_filter
+
     try:
-        result = await session.execute(
-            sql,
-            {
-                "user_id": user_id,
-                "query": query,
-                "type_filter": type_filter,
-                "status_filter": status_filter,
-                "limit": limit
-            }
-        )
+        result = await session.execute(sql, params)
 
         rows = result.fetchall()
         return [
