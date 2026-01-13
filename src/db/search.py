@@ -23,6 +23,11 @@ class SearchResult:
     vector_score: float
 
 
+def _format_embedding(embedding: List[float]) -> str:
+    """Format embedding as PostgreSQL array literal."""
+    return "[" + ",".join(str(v) for v in embedding) + "]"
+
+
 async def hybrid_search(
     session: AsyncSession,
     user_id: int,
@@ -35,19 +40,6 @@ async def hybrid_search(
 ) -> List[SearchResult]:
     """
     Hybrid search combining FTS and vector similarity.
-
-    Args:
-        session: Database session
-        user_id: User ID to search within
-        query: Search query text
-        limit: Max results to return
-        type_filter: Optional filter by item type
-        status_filter: Optional filter by status
-        fts_weight: Weight for full-text search score (0-1)
-        vector_weight: Weight for vector similarity score (0-1)
-
-    Returns:
-        List of SearchResult sorted by combined score
     """
     if not query or not query.strip():
         return []
@@ -58,9 +50,11 @@ async def hybrid_search(
         # Fallback to FTS only
         return await fts_search(session, user_id, query, limit, type_filter, status_filter)
 
-    # Build the hybrid query
-    # Uses RRF (Reciprocal Rank Fusion) style scoring
-    sql = text("""
+    # Format embedding as literal for SQL
+    emb_literal = _format_embedding(query_embedding)
+
+    # Build the hybrid query with embedding as literal
+    sql = text(f"""
         WITH fts_results AS (
             SELECT
                 id,
@@ -82,14 +76,14 @@ async def hybrid_search(
         vector_results AS (
             SELECT
                 id,
-                1 - (embedding <=> :embedding::vector) AS vector_score
+                1 - (embedding <=> '{emb_literal}'::vector) AS vector_score
             FROM items
             WHERE user_id = :user_id
                 AND embedding IS NOT NULL
                 AND (:type_filter IS NULL OR type = :type_filter)
                 AND (:status_filter IS NULL OR status = :status_filter)
-            ORDER BY embedding <=> :embedding::vector
-            LIMIT :limit * 3
+            ORDER BY embedding <=> '{emb_literal}'::vector
+            LIMIT :vec_limit
         ),
         combined AS (
             SELECT
@@ -120,11 +114,11 @@ async def hybrid_search(
             {
                 "user_id": user_id,
                 "query": query,
-                "embedding": str(query_embedding),
                 "type_filter": type_filter,
                 "status_filter": status_filter,
                 "fts_weight": fts_weight,
                 "vector_weight": vector_weight,
+                "vec_limit": limit * 3,
                 "limit": limit
             }
         )
@@ -224,18 +218,20 @@ async def vector_search(
     if not query_embedding:
         return []
 
-    sql = text("""
+    emb_literal = _format_embedding(query_embedding)
+
+    sql = text(f"""
         SELECT
             id,
             title,
             content,
             type,
-            1 - (embedding <=> :embedding::vector) AS score
+            1 - (embedding <=> '{emb_literal}'::vector) AS score
         FROM items
         WHERE user_id = :user_id
             AND embedding IS NOT NULL
             AND (:type_filter IS NULL OR type = :type_filter)
-        ORDER BY embedding <=> :embedding::vector
+        ORDER BY embedding <=> '{emb_literal}'::vector
         LIMIT :limit
     """)
 
@@ -244,7 +240,6 @@ async def vector_search(
             sql,
             {
                 "user_id": user_id,
-                "embedding": str(query_embedding),
                 "type_filter": type_filter,
                 "limit": limit
             }
