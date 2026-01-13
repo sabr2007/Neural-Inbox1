@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy import text
 
 from src.config import config
 from src.db.models import Base
@@ -27,6 +28,8 @@ async_session_factory = async_sessionmaker(
 async def init_db() -> None:
     """Initialize database - create tables if they don't exist."""
     async with engine.begin() as conn:
+        # Enable pgvector extension for vector embeddings
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
 
