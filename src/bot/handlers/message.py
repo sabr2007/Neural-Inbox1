@@ -11,10 +11,13 @@ from aiogram.enums import ContentType
 
 from src.ai.router import router as intent_router, Intent
 from src.ai.classifier import ContentClassifier
+from src.ai.embeddings import get_embedding
 from src.db.database import get_session
 from src.db.repository import UserRepository, ItemRepository
+from src.db.search import hybrid_search
 from src.db.models import ItemSource
 from src.bot.keyboards import clarification_keyboard, item_actions_keyboard
+from src.utils.history import message_history
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +43,14 @@ async def handle_text(message: Message) -> None:
         await process_save(message, original_text, ItemSource.TEXT.value)
         return
 
-    # Route through AI
-    result, clarification = await intent_router.classify_with_clarification(text)
+    # Get conversation context (last 5 messages)
+    context = message_history.get_context_string(user_id, limit=5)
+
+    # Save user message to history
+    message_history.add(user_id, "user", text)
+
+    # Route through AI with context
+    result, clarification = await intent_router.classify_with_clarification(text, context)
 
     logger.info(f"Intent: {result.intent.value}, confidence: {result.confidence}")
 
@@ -179,6 +188,12 @@ async def process_save(
             **kwargs
         )
 
+        # Generate embedding for semantic search
+        embedding_text = f"{classification.title} {text}"
+        embedding = await get_embedding(embedding_text)
+        if embedding:
+            await item_repo.update(item.id, user_id, embedding=embedding)
+
         # Format response
         type_emoji = {
             "task": "",
@@ -203,41 +218,63 @@ async def process_save(
             reply_markup=item_actions_keyboard(item.id, classification.type)
         )
 
+        # Save bot response to history
+        message_history.add(user_id, "assistant", response)
+
 
 async def process_query(message: Message, text: str) -> None:
     """Process QUERY intent - search and return results."""
-    # TODO: Implement hybrid search
-    await message.reply(
-        "Ищу в твоих записях...\n"
-        "(Поиск будет добавлен в следующей версии)"
-    )
+    user_id = message.from_user.id
+
+    async with get_session() as session:
+        results = await hybrid_search(session, user_id, text, limit=5)
+
+        if not results:
+            response = "Ничего не нашел по твоему запросу."
+            await message.reply(response)
+            message_history.add(user_id, "assistant", response)
+            return
+
+        # Format results
+        type_emoji = {
+            "task": "", "idea": "", "note": "",
+            "resource": "", "contact": "", "event": ""
+        }
+
+        lines = [f"Найдено {len(results)} записей:\n"]
+        for i, r in enumerate(results, 1):
+            emoji = type_emoji.get(r.type, "")
+            score_pct = int(r.score * 100)
+            lines.append(f"{i}. {emoji} {r.title} ({score_pct}%)")
+
+        response = "\n".join(lines)
+        await message.reply(response)
+        message_history.add(user_id, "assistant", response)
 
 
 async def process_action(message: Message, text: str) -> None:
     """Process ACTION intent - modify existing items."""
+    user_id = message.from_user.id
     # TODO: Implement action processing with AI agent
-    await message.reply(
-        "Понял, нужно изменить что-то существующее.\n"
-        "(Действия будут добавлены в следующей версии)"
-    )
+    response = "Понял, нужно изменить что-то существующее.\n(Действия будут добавлены в следующей версии)"
+    await message.reply(response)
+    message_history.add(user_id, "assistant", response)
 
 
 async def process_chat(message: Message, text: str) -> None:
     """Process CHAT intent - respond to small talk."""
+    user_id = message.from_user.id
     greetings = ["привет", "здравствуй", "хай", "hello", "hi"]
     thanks = ["спасибо", "благодарю", "thanks"]
 
     text_lower = text.lower()
 
     if any(g in text_lower for g in greetings):
-        await message.reply(
-            "Привет! Я твой второй мозг в Telegram.\n"
-            "Просто отправляй мне что угодно - я сохраню и помогу найти."
-        )
+        response = "Привет! Я твой второй мозг в Telegram.\nПросто отправляй мне что угодно - я сохраню и помогу найти."
     elif any(t in text_lower for t in thanks):
-        await message.reply("Всегда пожалуйста!")
+        response = "Всегда пожалуйста!"
     else:
-        await message.reply(
-            "Я готов сохранять и искать твои заметки, задачи и идеи. "
-            "Просто отправь мне что-нибудь!"
-        )
+        response = "Я готов сохранять и искать твои заметки, задачи и идеи. Просто отправь мне что-нибудь!"
+
+    await message.reply(response)
+    message_history.add(user_id, "assistant", response)

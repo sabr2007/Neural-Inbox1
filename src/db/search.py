@@ -1,2 +1,325 @@
 # neural-inbox1/src/db/search.py
-# Hybrid search (FTS + vector)
+"""Hybrid search: Full-text search + Vector similarity."""
+import logging
+from dataclasses import dataclass
+from typing import List, Optional
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.ai.embeddings import get_embedding
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SearchResult:
+    id: int
+    title: str
+    content: Optional[str]
+    type: str
+    score: float
+    fts_score: float
+    vector_score: float
+
+
+async def hybrid_search(
+    session: AsyncSession,
+    user_id: int,
+    query: str,
+    limit: int = 10,
+    type_filter: Optional[str] = None,
+    status_filter: Optional[str] = None,
+    fts_weight: float = 0.3,
+    vector_weight: float = 0.7
+) -> List[SearchResult]:
+    """
+    Hybrid search combining FTS and vector similarity.
+
+    Args:
+        session: Database session
+        user_id: User ID to search within
+        query: Search query text
+        limit: Max results to return
+        type_filter: Optional filter by item type
+        status_filter: Optional filter by status
+        fts_weight: Weight for full-text search score (0-1)
+        vector_weight: Weight for vector similarity score (0-1)
+
+    Returns:
+        List of SearchResult sorted by combined score
+    """
+    if not query or not query.strip():
+        return []
+
+    # Get query embedding
+    query_embedding = await get_embedding(query)
+    if not query_embedding:
+        # Fallback to FTS only
+        return await fts_search(session, user_id, query, limit, type_filter, status_filter)
+
+    # Build the hybrid query
+    # Uses RRF (Reciprocal Rank Fusion) style scoring
+    sql = text("""
+        WITH fts_results AS (
+            SELECT
+                id,
+                ts_rank(
+                    setweight(to_tsvector('russian', COALESCE(title, '')), 'A') ||
+                    setweight(to_tsvector('russian', COALESCE(content, '')), 'B') ||
+                    setweight(to_tsvector('russian', COALESCE(original_input, '')), 'C'),
+                    plainto_tsquery('russian', :query)
+                ) AS fts_score
+            FROM items
+            WHERE user_id = :user_id
+                AND (
+                    to_tsvector('russian', COALESCE(title, '') || ' ' || COALESCE(content, '') || ' ' || COALESCE(original_input, ''))
+                    @@ plainto_tsquery('russian', :query)
+                )
+                AND (:type_filter IS NULL OR type = :type_filter)
+                AND (:status_filter IS NULL OR status = :status_filter)
+        ),
+        vector_results AS (
+            SELECT
+                id,
+                1 - (embedding <=> :embedding::vector) AS vector_score
+            FROM items
+            WHERE user_id = :user_id
+                AND embedding IS NOT NULL
+                AND (:type_filter IS NULL OR type = :type_filter)
+                AND (:status_filter IS NULL OR status = :status_filter)
+            ORDER BY embedding <=> :embedding::vector
+            LIMIT :limit * 3
+        ),
+        combined AS (
+            SELECT
+                COALESCE(f.id, v.id) AS id,
+                COALESCE(f.fts_score, 0) AS fts_score,
+                COALESCE(v.vector_score, 0) AS vector_score
+            FROM fts_results f
+            FULL OUTER JOIN vector_results v ON f.id = v.id
+        )
+        SELECT
+            c.id,
+            i.title,
+            i.content,
+            i.type,
+            (c.fts_score * :fts_weight + c.vector_score * :vector_weight) AS score,
+            c.fts_score,
+            c.vector_score
+        FROM combined c
+        JOIN items i ON c.id = i.id
+        WHERE (c.fts_score > 0 OR c.vector_score > 0.5)
+        ORDER BY score DESC
+        LIMIT :limit
+    """)
+
+    try:
+        result = await session.execute(
+            sql,
+            {
+                "user_id": user_id,
+                "query": query,
+                "embedding": str(query_embedding),
+                "type_filter": type_filter,
+                "status_filter": status_filter,
+                "fts_weight": fts_weight,
+                "vector_weight": vector_weight,
+                "limit": limit
+            }
+        )
+
+        rows = result.fetchall()
+        return [
+            SearchResult(
+                id=row.id,
+                title=row.title or "",
+                content=row.content,
+                type=row.type,
+                score=float(row.score),
+                fts_score=float(row.fts_score),
+                vector_score=float(row.vector_score)
+            )
+            for row in rows
+        ]
+
+    except Exception as e:
+        logger.error(f"Hybrid search error: {e}")
+        # Fallback to simple search
+        return await fts_search(session, user_id, query, limit, type_filter, status_filter)
+
+
+async def fts_search(
+    session: AsyncSession,
+    user_id: int,
+    query: str,
+    limit: int = 10,
+    type_filter: Optional[str] = None,
+    status_filter: Optional[str] = None
+) -> List[SearchResult]:
+    """Fallback: Full-text search only."""
+    sql = text("""
+        SELECT
+            id,
+            title,
+            content,
+            type,
+            ts_rank(
+                setweight(to_tsvector('russian', COALESCE(title, '')), 'A') ||
+                setweight(to_tsvector('russian', COALESCE(content, '')), 'B'),
+                plainto_tsquery('russian', :query)
+            ) AS score
+        FROM items
+        WHERE user_id = :user_id
+            AND (
+                to_tsvector('russian', COALESCE(title, '') || ' ' || COALESCE(content, '') || ' ' || COALESCE(original_input, ''))
+                @@ plainto_tsquery('russian', :query)
+            )
+            AND (:type_filter IS NULL OR type = :type_filter)
+            AND (:status_filter IS NULL OR status = :status_filter)
+        ORDER BY score DESC
+        LIMIT :limit
+    """)
+
+    try:
+        result = await session.execute(
+            sql,
+            {
+                "user_id": user_id,
+                "query": query,
+                "type_filter": type_filter,
+                "status_filter": status_filter,
+                "limit": limit
+            }
+        )
+
+        rows = result.fetchall()
+        return [
+            SearchResult(
+                id=row.id,
+                title=row.title or "",
+                content=row.content,
+                type=row.type,
+                score=float(row.score),
+                fts_score=float(row.score),
+                vector_score=0.0
+            )
+            for row in rows
+        ]
+
+    except Exception as e:
+        logger.error(f"FTS search error: {e}")
+        return []
+
+
+async def vector_search(
+    session: AsyncSession,
+    user_id: int,
+    query: str,
+    limit: int = 10,
+    type_filter: Optional[str] = None
+) -> List[SearchResult]:
+    """Vector-only semantic search."""
+    query_embedding = await get_embedding(query)
+    if not query_embedding:
+        return []
+
+    sql = text("""
+        SELECT
+            id,
+            title,
+            content,
+            type,
+            1 - (embedding <=> :embedding::vector) AS score
+        FROM items
+        WHERE user_id = :user_id
+            AND embedding IS NOT NULL
+            AND (:type_filter IS NULL OR type = :type_filter)
+        ORDER BY embedding <=> :embedding::vector
+        LIMIT :limit
+    """)
+
+    try:
+        result = await session.execute(
+            sql,
+            {
+                "user_id": user_id,
+                "embedding": str(query_embedding),
+                "type_filter": type_filter,
+                "limit": limit
+            }
+        )
+
+        rows = result.fetchall()
+        return [
+            SearchResult(
+                id=row.id,
+                title=row.title or "",
+                content=row.content,
+                type=row.type,
+                score=float(row.score),
+                fts_score=0.0,
+                vector_score=float(row.score)
+            )
+            for row in rows
+        ]
+
+    except Exception as e:
+        logger.error(f"Vector search error: {e}")
+        return []
+
+
+async def find_similar(
+    session: AsyncSession,
+    item_id: int,
+    user_id: int,
+    limit: int = 5,
+    min_similarity: float = 0.7
+) -> List[SearchResult]:
+    """Find similar items to a given item (for auto-linking)."""
+    sql = text("""
+        SELECT
+            i2.id,
+            i2.title,
+            i2.content,
+            i2.type,
+            1 - (i1.embedding <=> i2.embedding) AS score
+        FROM items i1
+        JOIN items i2 ON i1.user_id = i2.user_id AND i1.id != i2.id
+        WHERE i1.id = :item_id
+            AND i1.user_id = :user_id
+            AND i1.embedding IS NOT NULL
+            AND i2.embedding IS NOT NULL
+            AND 1 - (i1.embedding <=> i2.embedding) >= :min_similarity
+        ORDER BY i1.embedding <=> i2.embedding
+        LIMIT :limit
+    """)
+
+    try:
+        result = await session.execute(
+            sql,
+            {
+                "item_id": item_id,
+                "user_id": user_id,
+                "min_similarity": min_similarity,
+                "limit": limit
+            }
+        )
+
+        rows = result.fetchall()
+        return [
+            SearchResult(
+                id=row.id,
+                title=row.title or "",
+                content=row.content,
+                type=row.type,
+                score=float(row.score),
+                fts_score=0.0,
+                vector_score=float(row.score)
+            )
+            for row in rows
+        ]
+
+    except Exception as e:
+        logger.error(f"Find similar error: {e}")
+        return []
