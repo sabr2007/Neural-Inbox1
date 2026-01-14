@@ -24,7 +24,7 @@ from src.db.database import get_session
 from src.db.repository import UserRepository, ItemRepository
 from src.db.search import hybrid_search
 from src.db.models import ItemSource
-from src.bot.keyboards import clarification_keyboard, item_actions_keyboard
+from src.bot.keyboards import clarification_keyboard, item_actions_keyboard, agent_confirmation_keyboard
 from src.utils.history import message_history
 
 logger = logging.getLogger(__name__)
@@ -350,12 +350,23 @@ async def process_query(message: Message, text: str) -> None:
 
 
 async def process_action(message: Message, text: str) -> None:
-    """Process ACTION intent - modify existing items."""
+    """Process ACTION intent - run agent loop."""
+    from src.ai.agent import run_agent_loop
+
     user_id = message.from_user.id
-    # TODO: Implement action processing with AI agent
-    response = "Понял, нужно изменить что-то существующее.\n(Действия будут добавлены в следующей версии)"
-    await message.reply(response)
-    message_history.add(user_id, "assistant", response)
+    context = message_history.get_context_string(user_id, limit=5)
+
+    result = await run_agent_loop(user_id, text, context)
+
+    if result.needs_confirmation:
+        await message.reply(
+            result.response,
+            reply_markup=agent_confirmation_keyboard()
+        )
+    else:
+        await message.reply(result.response)
+
+    message_history.add(user_id, "assistant", result.response)
 
 
 async def process_chat(message: Message, text: str) -> None:

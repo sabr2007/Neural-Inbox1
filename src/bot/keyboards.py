@@ -172,3 +172,19 @@ def confirmation_keyboard(token: str, action_text: str) -> InlineKeyboardMarkup:
             )
         ]
     ])
+
+
+def agent_confirmation_keyboard() -> InlineKeyboardMarkup:
+    """Keyboard for confirming agent operations."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="Да",
+                callback_data="agent_confirm_yes"
+            ),
+            InlineKeyboardButton(
+                text="Нет",
+                callback_data="agent_confirm_no"
+            )
+        ]
+    ])

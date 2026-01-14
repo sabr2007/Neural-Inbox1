@@ -356,3 +356,43 @@ async def handle_batch_cancel(callback: CallbackQuery) -> None:
     clear_pending(token)
     await callback.message.edit_text("Операция отменена.")
     await callback.answer("Отменено")
+
+
+@callback_router.callback_query(F.data == "agent_confirm_yes")
+async def handle_agent_confirm_yes(callback: CallbackQuery) -> None:
+    """Handle agent operation confirmation (Yes)."""
+    from src.ai.agent import continue_agent_loop
+    from src.bot.keyboards import agent_confirmation_keyboard
+
+    user_id = callback.from_user.id
+    result = await continue_agent_loop(user_id, confirmed=True)
+
+    # Update original message with result
+    await callback.message.edit_text(
+        callback.message.text + "\n\n" + result.response,
+        reply_markup=None
+    )
+
+    # If there's another confirmation needed, send new message
+    if result.needs_confirmation:
+        await callback.message.answer(
+            result.response,
+            reply_markup=agent_confirmation_keyboard()
+        )
+
+    await callback.answer()
+
+
+@callback_router.callback_query(F.data == "agent_confirm_no")
+async def handle_agent_confirm_no(callback: CallbackQuery) -> None:
+    """Handle agent operation cancellation (No)."""
+    from src.ai.agent import continue_agent_loop
+
+    user_id = callback.from_user.id
+    result = await continue_agent_loop(user_id, confirmed=False)
+
+    await callback.message.edit_text(
+        callback.message.text + "\n\nОтменено",
+        reply_markup=None
+    )
+    await callback.answer("Отменено")
