@@ -3,13 +3,21 @@ Message handler - routes ALL inputs through AI Router.
 No commands, only natural language understanding.
 """
 import logging
-from typing import Optional
+import tempfile
+from pathlib import Path
 
-from aiogram import Router, F
+from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.enums import ContentType
 
 from src.ai.router import router as intent_router, Intent
+from src.config import MAX_VOICE_DURATION, MAX_FILE_SIZE
+from src.services.extracted_content import ExtractedContent
+from src.services.url_parser import URLParser, extract_urls
+from src.services.whisper_transcriber import WhisperTranscriber
+from src.services.image_analyzer import ImageAnalyzer
+from src.services.pdf_extractor import PDFExtractor
+from src.services.document_extractor import DocumentExtractor
 from src.ai.classifier import ContentClassifier
 from src.ai.embeddings import get_embedding
 from src.db.database import get_session
@@ -22,6 +30,18 @@ from src.utils.history import message_history
 logger = logging.getLogger(__name__)
 
 message_router = Router()
+
+
+async def download_temp_file(bot: Bot, file_id: str, suffix: str = "") -> Path:
+    """Download a file from Telegram to a temporary location."""
+    file = await bot.get_file(file_id)
+    temp_dir = Path(tempfile.gettempdir()) / "neural_inbox"
+    temp_dir.mkdir(exist_ok=True)
+
+    # Create temp file with appropriate suffix
+    temp_file = temp_dir / f"{file_id}{suffix}"
+    await bot.download_file(file.file_path, temp_file)
+    return temp_file
 
 # Store pending clarifications (in production use Redis)
 pending_clarifications: dict[int, str] = {}
@@ -42,6 +62,14 @@ async def handle_text(message: Message) -> None:
         original_text = pending_clarifications.pop(user_id)
         await process_save(message, original_text, ItemSource.TEXT.value)
         return
+
+    # Detect and parse URLs
+    urls = extract_urls(text)
+    if urls:
+        url_parser = URLParser()
+        result = await url_parser.parse(urls[0])
+        if not result.is_error and result.text:
+            text = f"{text}\n\n--- Содержимое ссылки ---\n{result.text}"
 
     # Get conversation context (last 5 messages)
     context = message_history.get_context_string(user_id, limit=5)
@@ -79,56 +107,125 @@ async def handle_text(message: Message) -> None:
 @message_router.message(F.content_type == ContentType.VOICE)
 async def handle_voice(message: Message) -> None:
     """Handle voice messages - transcribe with Whisper, then route."""
-    # TODO: Implement Whisper transcription
-    await message.reply(
-        "Голосовые сообщения скоро будут поддерживаться! "
-        "Пока отправьте текстом."
-    )
+    voice = message.voice
+
+    # Check duration limit
+    if voice.duration > MAX_VOICE_DURATION:
+        await message.reply(
+            f"Голосовое сообщение слишком длинное ({voice.duration} сек). "
+            f"Максимум: {MAX_VOICE_DURATION // 60} минут"
+        )
+        return
+
+    # Download voice file
+    file_path = await download_temp_file(message.bot, voice.file_id, suffix=".ogg")
+
+    try:
+        # Transcribe
+        transcriber = WhisperTranscriber()
+        result = await transcriber.transcribe(file_path, duration=voice.duration)
+
+        if result.is_error:
+            await message.reply(result.error)
+            return
+
+        # Process transcribed text through router
+        await message.reply(f"🎤 Распознано: {result.text[:200]}{'...' if len(result.text) > 200 else ''}")
+        await process_save(message, result.text, ItemSource.TEXT.value)
+
+    finally:
+        # Cleanup temp file
+        if file_path.exists():
+            file_path.unlink()
 
 
 @message_router.message(F.content_type == ContentType.PHOTO)
 async def handle_photo(message: Message) -> None:
     """Handle photos - use GPT-4o Vision for understanding."""
-    # TODO: Implement GPT-4o Vision processing
-    caption = message.caption or ""
+    photo = message.photo[-1]  # Get highest resolution
+    caption = message.caption
 
-    if caption:
-        # Process caption as text, note that there's a photo
-        await message.reply(
-            "Сохраняю фото с описанием. "
-            "Скоро добавлю распознавание содержимого изображений!"
-        )
+    # Download photo
+    file_path = await download_temp_file(message.bot, photo.file_id, suffix=".jpg")
+
+    try:
+        # Analyze image
+        analyzer = ImageAnalyzer()
+        result = await analyzer.analyze(file_path, caption=caption)
+
+        if result.is_error:
+            await message.reply(result.error)
+            return
+
+        # Save with extracted text
         await process_save(
             message,
-            f"[Фото] {caption}",
+            result.text,
             ItemSource.PHOTO.value,
-            attachment_file_id=message.photo[-1].file_id,
+            attachment_file_id=photo.file_id,
             attachment_type="photo"
         )
-    else:
-        await message.reply(
-            "Получил фото! Добавьте описание, чтобы я мог его сохранить."
-        )
+
+    finally:
+        # Cleanup temp file
+        if file_path.exists():
+            file_path.unlink()
 
 
 @message_router.message(F.content_type == ContentType.DOCUMENT)
 async def handle_document(message: Message) -> None:
-    """Handle documents - extract text from PDFs, etc."""
+    """Handle documents - extract text from PDFs, Word docs, etc."""
     doc = message.document
-    caption = message.caption or doc.file_name or "Документ"
+    file_name = doc.file_name or "document"
+    ext = Path(file_name).suffix.lower()
 
-    # TODO: Implement PDF extraction
-    await message.reply(
-        f"Сохраняю документ: {doc.file_name}\n"
-        "Скоро добавлю извлечение текста из PDF!"
-    )
-    await process_save(
-        message,
-        f"[Документ] {caption}",
-        ItemSource.PDF.value,
-        attachment_file_id=doc.file_id,
-        attachment_type="document"
-    )
+    # Check file size
+    if doc.file_size > MAX_FILE_SIZE:
+        await message.reply(
+            f"Файл слишком большой ({doc.file_size // 1024 // 1024}MB). "
+            f"Максимум: {MAX_FILE_SIZE // 1024 // 1024}MB"
+        )
+        return
+
+    # Download document
+    file_path = await download_temp_file(message.bot, doc.file_id, suffix=ext)
+
+    try:
+        # Extract text based on file type
+        if ext == ".pdf":
+            extractor = PDFExtractor()
+            result = await extractor.extract(file_path)
+            source = ItemSource.PDF.value
+        elif ext in (".docx", ".doc"):
+            extractor = DocumentExtractor()
+            result = await extractor.extract(file_path)
+            source = ItemSource.PDF.value  # Using PDF source for all documents
+        else:
+            await message.reply(f"Формат {ext} пока не поддерживается")
+            return
+
+        if result.is_error:
+            await message.reply(result.error)
+            return
+
+        # Notify user about extraction
+        title_info = f"📄 {result.title}" if result.title else f"📄 {file_name}"
+        pages_info = result.metadata.get("page_count", result.metadata.get("estimated_pages", "?"))
+        await message.reply(f"{title_info}\nСтраниц: {pages_info}")
+
+        # Save extracted text
+        await process_save(
+            message,
+            result.text,
+            source,
+            attachment_file_id=doc.file_id,
+            attachment_type="document"
+        )
+
+    finally:
+        # Cleanup temp file
+        if file_path.exists():
+            file_path.unlink()
 
 
 @message_router.message(F.forward_from | F.forward_from_chat)

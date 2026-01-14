@@ -121,3 +121,11 @@ def load_config() -> Config:
 
 
 config = load_config()
+
+# Input limits
+MAX_VOICE_DURATION: int = 300  # 5 минут
+MAX_FILE_SIZE: int = 25 * 1024 * 1024  # 25MB
+MAX_IMAGE_SIZE: int = 20 * 1024 * 1024  # 20MB
+MAX_DOCUMENT_PAGES: int = 50
+OCR_MAX_PAGES: int = 4
+URL_FETCH_TIMEOUT: int = 10
