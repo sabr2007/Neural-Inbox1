@@ -63,10 +63,10 @@ AGENT_SYSTEM_PROMPT = """Ты — AI-агент для управления за
 
 "Отметь 'купить молоко' как выполненное"
 → search_items(query="купить молоко", type="task")
-→ batch_update_items(filter={...}, updates={status: "done"})
+→ batch_update_items(filter=..., updates=status: "done")
 
 "Удали все выполненные задачи"
-→ batch_delete_items(filter={status: "done", type: "task"})
+→ batch_delete_items(filter=status: "done", type: "task")
 
 ## Текущая дата: {current_date}
 """

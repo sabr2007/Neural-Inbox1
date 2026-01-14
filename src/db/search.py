@@ -35,8 +35,8 @@ async def hybrid_search(
     limit: int = 10,
     type_filter: Optional[str] = None,
     status_filter: Optional[str] = None,
-    fts_weight: float = 0.3,
-    vector_weight: float = 0.7
+    fts_weight: float = 0.5,
+    vector_weight: float = 0.5
 ) -> List[SearchResult]:
     """
     Hybrid search combining FTS and vector similarity.
@@ -103,12 +103,17 @@ async def hybrid_search(
             i.title,
             i.content,
             i.type,
-            (c.fts_score * :fts_weight + c.vector_score * :vector_weight) AS score,
+            -- Use weighted average but boost when both scores are high
+            GREATEST(
+                c.fts_score * :fts_weight + c.vector_score * :vector_weight,
+                c.fts_score * 0.8,  -- Strong FTS match alone is valuable
+                c.vector_score * 0.8  -- Strong vector match alone is valuable
+            ) AS score,
             c.fts_score,
             c.vector_score
         FROM combined c
         JOIN items i ON c.id = i.id
-        WHERE (c.fts_score > 0 OR c.vector_score > 0.15)
+        WHERE (c.fts_score > 0.05 OR c.vector_score > 0.3)
         ORDER BY score DESC
         LIMIT :limit
     """)
