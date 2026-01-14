@@ -156,3 +156,19 @@ def search_results_keyboard(items: list, page: int = 0, has_more: bool = False) 
         buttons.append(nav_buttons)
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def confirmation_keyboard(token: str, action_text: str) -> InlineKeyboardMarkup:
+    """Keyboard for confirming batch operations."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"{action_text}",
+                callback_data=f"batch_confirm:{token}"
+            ),
+            InlineKeyboardButton(
+                text="Отмена",
+                callback_data=f"batch_cancel:{token}"
+            )
+        ]
+    ])
