@@ -107,7 +107,7 @@ async def hybrid_search(
             c.vector_score
         FROM combined c
         JOIN items i ON c.id = i.id
-        WHERE (c.fts_score > 0 OR c.vector_score > 0.5)
+        WHERE (c.fts_score > 0 OR c.vector_score > 0.25)
         ORDER BY score DESC
         LIMIT :limit
     """)

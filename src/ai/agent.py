@@ -46,7 +46,7 @@ AGENT_SYSTEM_PROMPT = """Ты — AI-агент для управления за
 
 Пользователь: "Удали все выполненные задачи"
 → Вызови search_items(status="done", type="task") чтобы увидеть что удалится
-→ Вызови batch_delete_items(filter={status: "done", type: "task"})
+→ Вызови batch_delete_items(filter={{status: "done", type: "task"}})
 → Получишь needs_confirmation с превью
 → [Ждёшь подтверждения пользователя]
 → После подтверждения: "Готово: Удалено 5 задач"
