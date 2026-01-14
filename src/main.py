@@ -19,6 +19,7 @@ from src.config import config
 from src.db.database import init_db, close_db
 from src.bot.handlers.message import message_router
 from src.bot.handlers.callbacks import callback_router
+from src.bot.jobs import init_scheduler, get_scheduler
 
 logging.basicConfig(
     level=logging.DEBUG if config.debug else logging.INFO,
@@ -32,6 +33,10 @@ async def on_startup(bot: Bot) -> None:
     logger.info("Starting Neural Inbox bot...")
     await init_db()
     logger.info("Database initialized")
+
+    scheduler = init_scheduler(bot)
+    scheduler.start()
+    logger.info("Reminder scheduler started")
 
     if config.telegram.webapp_url:
         try:
@@ -50,6 +55,12 @@ async def on_startup(bot: Bot) -> None:
 
 async def on_shutdown(bot: Bot) -> None:
     logger.info("Shutting down Neural Inbox bot...")
+
+    scheduler = get_scheduler()
+    if scheduler:
+        scheduler.stop()
+        logger.info("Reminder scheduler stopped")
+
     await close_db()
     logger.info("Bot stopped")
 

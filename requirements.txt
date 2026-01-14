@@ -21,6 +21,9 @@ pydantic-settings==2.6.1
 python-dateutil==2.9.0
 pytz==2024.2
 
+# Scheduler
+apscheduler==3.10.4
+
 # PDF/Document processing
 pypdf==5.1.0
 python-docx==1.1.2
