@@ -106,7 +106,8 @@ async def handle_text(message: Message) -> None:
 
 @message_router.message(F.content_type == ContentType.VOICE)
 async def handle_voice(message: Message) -> None:
-    """Handle voice messages - transcribe with Whisper, then route."""
+    """Handle voice messages - transcribe with Whisper, then route through AI."""
+    user_id = message.from_user.id
     voice = message.voice
 
     # Check duration limit
@@ -129,9 +130,37 @@ async def handle_voice(message: Message) -> None:
             await message.reply(result.error)
             return
 
-        # Process transcribed text through router
-        await message.reply(f"🎤 Распознано: {result.text[:200]}{'...' if len(result.text) > 200 else ''}")
-        await process_save(message, result.text, ItemSource.TEXT.value)
+        text = result.text.strip()
+        if not text:
+            await message.reply("Не удалось распознать голосовое сообщение.")
+            return
+
+        # Show transcription
+        await message.reply(f"🎤 Распознано: {text[:200]}{'...' if len(text) > 200 else ''}")
+
+        # Save to history
+        message_history.add(user_id, "user", text)
+
+        # Route through AI intent classifier (same as text messages)
+        context = message_history.get_context_string(user_id, limit=5)
+        router_result, clarification = await intent_router.classify_with_clarification(text, context)
+
+        logger.info(f"Voice intent: {router_result.intent.value}, confidence: {router_result.confidence}")
+
+        if router_result.intent == Intent.UNCLEAR:
+            pending_clarifications[user_id] = text
+            await message.reply(
+                clarification or "Сохранить это или найти в записях?",
+                reply_markup=clarification_keyboard(text)
+            )
+        elif router_result.intent == Intent.SAVE:
+            await process_save(message, text, ItemSource.VOICE.value)
+        elif router_result.intent == Intent.QUERY:
+            await process_query(message, text)
+        elif router_result.intent == Intent.ACTION:
+            await process_action(message, text)
+        elif router_result.intent == Intent.CHAT:
+            await process_chat(message, text)
 
     finally:
         # Cleanup temp file

@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from src.db.database import get_session
-from src.db.repository import ItemRepository, ProjectRepository
+from src.db.repository import ItemRepository, ProjectRepository, UserRepository
 from src.ai.batch_confirmations import (
     PendingOperation, generate_token, store_pending, get_pending, clear_pending
 )
+from src.ai.embeddings import get_embedding
 
 
 # Tool definitions for AI agent
@@ -204,6 +205,51 @@ TOOL_DEFINITIONS = [
                 }
             },
             "required": ["action"]
+        }
+    },
+    {
+        "name": "save_item",
+        "description": "Create a new item (task, idea, note, resource, contact, event). Use when user asks to ADD or CREATE a new record.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "title": {
+                    "type": "string",
+                    "description": "Item title/name"
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Full content (optional)"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["task", "idea", "note", "resource", "contact", "event"],
+                    "description": "Item type"
+                },
+                "due_at": {
+                    "type": "string",
+                    "description": "Due date in ISO format (optional)"
+                },
+                "due_at_raw": {
+                    "type": "string",
+                    "description": "Original due date text like 'завтра в 15:00' (optional)"
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": "Priority level (optional)"
+                },
+                "project_id": {
+                    "type": "integer",
+                    "description": "Project ID to add item to (optional)"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tags list (optional)"
+                }
+            },
+            "required": ["title", "type"]
         }
     }
 ]
@@ -687,6 +733,62 @@ async def execute_manage_projects(user_id: int, params: Dict[str, Any]) -> Dict[
             return {"error": f"Unknown action: {action}"}
 
 
+async def execute_save_item(user_id: int, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute save_item tool - create a new item."""
+    title = params.get("title")
+    item_type = params.get("type")
+    
+    if not title:
+        return {"error": "title is required"}
+    if not item_type:
+        return {"error": "type is required"}
+    
+    async with get_session() as session:
+        # Ensure user exists
+        user_repo = UserRepository(session)
+        await user_repo.get_or_create(user_id)
+        
+        # Parse due_at if provided
+        due_at = None
+        if params.get("due_at"):
+            try:
+                due_at = datetime.fromisoformat(params["due_at"].replace("Z", "+00:00"))
+            except ValueError:
+                pass
+        
+        # Create item
+        item_repo = ItemRepository(session)
+        item = await item_repo.create(
+            user_id=user_id,
+            type=item_type,
+            title=title,
+            content=params.get("content"),
+            original_input=title,
+            source="agent",
+            due_at=due_at,
+            due_at_raw=params.get("due_at_raw"),
+            priority=params.get("priority"),
+            project_id=params.get("project_id"),
+            tags=params.get("tags", [])
+        )
+        
+        # Generate embedding for semantic search
+        embedding_text = f"{title} {params.get('content', '')}"
+        embedding = await get_embedding(embedding_text)
+        if embedding:
+            await item_repo.update(item.id, user_id, embedding=embedding)
+        
+        return {
+            "success": True,
+            "item": {
+                "id": item.id,
+                "title": item.title,
+                "type": item.type,
+                "project_id": item.project_id
+            }
+        }
+
+
 # Tool executor mapping
 TOOL_EXECUTORS = {
     "search_items": execute_search_items,
@@ -694,6 +796,7 @@ TOOL_EXECUTORS = {
     "batch_update_items": execute_batch_update_items,
     "batch_delete_items": execute_batch_delete_items,
     "manage_projects": execute_manage_projects,
+    "save_item": execute_save_item,
 }
 
 

@@ -58,16 +58,17 @@ async def hybrid_search(
     status_condition = "AND status = :status_filter" if status_filter else ""
 
     # Build the hybrid query with embedding as literal
+    # FTS scores are normalized to 0-1 range (raw ts_rank is typically 0.01-0.1)
     sql = text(f"""
         WITH fts_results AS (
             SELECT
                 id,
-                ts_rank(
+                LEAST(1.0, ts_rank(
                     setweight(to_tsvector('russian', COALESCE(title, '')), 'A') ||
                     setweight(to_tsvector('russian', COALESCE(content, '')), 'B') ||
                     setweight(to_tsvector('russian', COALESCE(original_input, '')), 'C'),
                     plainto_tsquery('russian', :query)
-                ) AS fts_score
+                ) * 10) AS fts_score
             FROM items
             WHERE user_id = :user_id
                 AND (
@@ -107,7 +108,7 @@ async def hybrid_search(
             c.vector_score
         FROM combined c
         JOIN items i ON c.id = i.id
-        WHERE (c.fts_score > 0 OR c.vector_score > 0.25)
+        WHERE (c.fts_score > 0 OR c.vector_score > 0.15)
         ORDER BY score DESC
         LIMIT :limit
     """)
@@ -130,7 +131,7 @@ async def hybrid_search(
         result = await session.execute(sql, params)
 
         rows = result.fetchall()
-        return [
+        results = [
             SearchResult(
                 id=row.id,
                 title=row.title or "",
@@ -142,6 +143,12 @@ async def hybrid_search(
             )
             for row in rows
         ]
+        
+        # If no results, try ILIKE fallback for short Russian queries
+        if not results and len(query.split()) <= 3:
+            results = await ilike_search(session, user_id, query, limit, type_filter, status_filter)
+        
+        return results
 
     except Exception as e:
         logger.error(f"Hybrid search error: {e}")
@@ -215,6 +222,73 @@ async def fts_search(
 
     except Exception as e:
         logger.error(f"FTS search error: {e}")
+        return []
+
+
+async def ilike_search(
+    session: AsyncSession,
+    user_id: int,
+    query: str,
+    limit: int = 10,
+    type_filter: Optional[str] = None,
+    status_filter: Optional[str] = None
+) -> List[SearchResult]:
+    """Fallback: ILIKE search for short Russian queries that FTS may miss."""
+    type_condition = "AND type = :type_filter" if type_filter else ""
+    status_condition = "AND status = :status_filter" if status_filter else ""
+    
+    # Build search pattern with wildcards
+    pattern = f"%{query}%"
+    
+    sql = text(f"""
+        SELECT
+            id,
+            title,
+            content,
+            type,
+            0.5 AS score  -- Default score for ILIKE matches
+        FROM items
+        WHERE user_id = :user_id
+            AND (
+                title ILIKE :pattern
+                OR content ILIKE :pattern
+                OR original_input ILIKE :pattern
+            )
+            {type_condition}
+            {status_condition}
+        ORDER BY 
+            CASE WHEN title ILIKE :pattern THEN 0 ELSE 1 END,
+            created_at DESC
+        LIMIT :limit
+    """)
+    
+    params = {
+        "user_id": user_id,
+        "pattern": pattern,
+        "limit": limit
+    }
+    if type_filter:
+        params["type_filter"] = type_filter
+    if status_filter:
+        params["status_filter"] = status_filter
+    
+    try:
+        result = await session.execute(sql, params)
+        rows = result.fetchall()
+        return [
+            SearchResult(
+                id=row.id,
+                title=row.title or "",
+                content=row.content,
+                type=row.type,
+                score=float(row.score),
+                fts_score=0.0,
+                vector_score=0.0
+            )
+            for row in rows
+        ]
+    except Exception as e:
+        logger.error(f"ILIKE search error: {e}")
         return []
 
 
