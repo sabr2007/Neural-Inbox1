@@ -8,7 +8,7 @@ from pathlib import Path
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message
-from aiogram.enums import ContentType
+from aiogram.enums import ContentType, ChatAction
 
 from src.ai.router import router as intent_router, Intent
 from src.config import MAX_VOICE_DURATION, MAX_FILE_SIZE
@@ -55,6 +55,9 @@ async def handle_text(message: Message) -> None:
 
     if not text:
         return
+
+    # Show typing indicator
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     # Check if this is a response to a clarification
     if user_id in pending_clarifications:
@@ -107,6 +110,9 @@ async def handle_text(message: Message) -> None:
 @message_router.message(F.content_type == ContentType.VOICE)
 async def handle_voice(message: Message) -> None:
     """Handle voice messages - transcribe with Whisper, then route through AI."""
+    # Show typing indicator
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+
     user_id = message.from_user.id
     voice = message.voice
 
@@ -171,6 +177,9 @@ async def handle_voice(message: Message) -> None:
 @message_router.message(F.content_type == ContentType.PHOTO)
 async def handle_photo(message: Message) -> None:
     """Handle photos - use GPT-4o Vision for understanding."""
+    # Show typing indicator
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+
     photo = message.photo[-1]  # Get highest resolution
     caption = message.caption
 
@@ -204,6 +213,9 @@ async def handle_photo(message: Message) -> None:
 @message_router.message(F.content_type == ContentType.DOCUMENT)
 async def handle_document(message: Message) -> None:
     """Handle documents - extract text from PDFs, Word docs, etc."""
+    # Show typing indicator
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+
     doc = message.document
     file_name = doc.file_name or "document"
     ext = Path(file_name).suffix.lower()
@@ -260,6 +272,9 @@ async def handle_document(message: Message) -> None:
 @message_router.message(F.forward_from | F.forward_from_chat)
 async def handle_forward(message: Message) -> None:
     """Handle forwarded messages - save with origin context."""
+    # Show typing indicator
+    await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
+
     text = message.text or message.caption or ""
     origin = None
 
