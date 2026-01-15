@@ -188,3 +188,24 @@ def agent_confirmation_keyboard() -> InlineKeyboardMarkup:
             )
         ]
     ])
+
+
+def search_result_buttons_keyboard(results: list) -> InlineKeyboardMarkup:
+    """Keyboard with 'Показать' buttons for search results.
+
+    Args:
+        results: List of SearchResult objects with id, title, type attributes
+    """
+    buttons = []
+
+    for i, result in enumerate(results, 1):
+        # Truncate title if too long for button
+        title = result.title[:25] + "..." if len(result.title) > 25 else result.title
+        buttons.append([
+            InlineKeyboardButton(
+                text=f"{i}. {title} [Показать]",
+                callback_data=f"view:{result.id}"
+            )
+        ])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)

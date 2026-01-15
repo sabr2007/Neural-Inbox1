@@ -349,10 +349,15 @@ async def process_save(
         response = f"{emoji} Сохранено: {classification.title}"
 
         if classification.due_at_raw:
-            response += f"\nСрок: {classification.due_at_raw}"
+            # Format: "Срок: завтра к двум (16.01.2026 14:00)"
+            due_display = classification.due_at_raw
+            if classification.due_at:
+                parsed_date = classification.due_at.strftime("%d.%m.%Y %H:%M")
+                due_display += f" ({parsed_date})"
+            response += f"\n📅 Срок: {due_display}"
 
         if classification.tags:
-            response += f"\nТеги: {' '.join(classification.tags)}"
+            response += f"\n🏷️ Теги: {' '.join(classification.tags)}"
 
         await message.reply(
             response,
@@ -364,33 +369,137 @@ async def process_save(
 
 
 async def process_query(message: Message, text: str) -> None:
-    """Process QUERY intent - search and return results."""
+    """Process QUERY intent - search and return results.
+
+    Logic:
+    - If top_score > 0.4: show results
+    - If top_score <= 0.4 or no results: fallback to agent for reformulation
+    - If 1 result: show full content
+    - If 2+ results: show list with inline buttons
+    """
+    from src.bot.keyboards import search_result_buttons_keyboard
+    from src.db.repository import ItemRepository
+
     user_id = message.from_user.id
+    SCORE_THRESHOLD = 0.4
 
     async with get_session() as session:
         results = await hybrid_search(session, user_id, text, limit=5)
 
-        if not results:
-            response = "Ничего не нашел по твоему запросу."
-            await message.reply(response)
-            message_history.add(user_id, "assistant", response)
-            return
+        # Check if results are good enough
+        top_score = results[0].score if results else 0
 
-        # Format results
+        # Fallback to agent if results are poor
+        if not results or top_score <= SCORE_THRESHOLD:
+            # Try agent reformulation
+            agent_result = await _search_with_agent_fallback(user_id, text, session)
+            if agent_result:
+                await message.reply(agent_result)
+                message_history.add(user_id, "assistant", agent_result)
+                return
+            else:
+                response = "Ничего не нашел по твоему запросу."
+                await message.reply(response)
+                message_history.add(user_id, "assistant", response)
+                return
+
         type_emoji = {
-            "task": "", "idea": "", "note": "",
-            "resource": "", "contact": "", "event": ""
+            "task": "📝", "idea": "💡", "note": "📄",
+            "resource": "🔗", "contact": "👤", "event": "📅"
         }
 
-        lines = [f"Найдено {len(results)} записей:\n"]
-        for i, r in enumerate(results, 1):
-            emoji = type_emoji.get(r.type, "")
-            score_pct = int(r.score * 100)
-            lines.append(f"{i}. {emoji} {r.title} ({score_pct}%)")
+        # Build search results metadata for agent context
+        search_metadata = {
+            "search_results": [
+                {"id": r.id, "title": r.title, "position": i}
+                for i, r in enumerate(results, 1)
+            ]
+        }
 
-        response = "\n".join(lines)
-        await message.reply(response)
-        message_history.add(user_id, "assistant", response)
+        if len(results) == 1:
+            # Single result - show full content
+            r = results[0]
+            item_repo = ItemRepository(session)
+            item = await item_repo.get(r.id, user_id)
+
+            if item:
+                emoji = type_emoji.get(item.type, "📄")
+                lines = [f"{emoji} **{item.title}**"]
+
+                # Show content or original_input
+                content_text = item.content or item.original_input
+                if content_text:
+                    lines.append(f"\n{content_text[:500]}")
+                    if len(content_text) > 500:
+                        lines.append("...")
+
+                if item.due_at_raw:
+                    due_display = item.due_at_raw
+                    if item.due_at:
+                        due_display += f" ({item.due_at.strftime('%d.%m.%Y %H:%M')})"
+                    lines.append(f"\n📅 Срок: {due_display}")
+
+                if item.tags:
+                    lines.append(f"🏷️ Теги: {' '.join(item.tags)}")
+
+                response = "\n".join(lines)
+                await message.reply(
+                    response,
+                    reply_markup=item_actions_keyboard(item.id, item.type),
+                    parse_mode="Markdown"
+                )
+            else:
+                response = f"📄 {r.title}"
+                await message.reply(response)
+
+            message_history.add(user_id, "assistant", response, metadata=search_metadata)
+
+        else:
+            # Multiple results - show list with buttons
+            lines = [f"Найдено {len(results)} записей:\n"]
+            for i, r in enumerate(results, 1):
+                emoji = type_emoji.get(r.type, "📄")
+                score_pct = int(r.score * 100)
+                lines.append(f"{i}. {emoji} {r.title} ({score_pct}%)")
+
+            response = "\n".join(lines)
+            await message.reply(
+                response,
+                reply_markup=search_result_buttons_keyboard(results)
+            )
+            message_history.add(user_id, "assistant", response, metadata=search_metadata)
+
+
+async def _search_with_agent_fallback(
+    user_id: int,
+    query: str,
+    session
+) -> str | None:
+    """Use agent to reformulate search query and find results.
+
+    Returns formatted response or None if nothing found.
+    """
+    from src.ai.agent import run_agent_loop
+
+    # Build special prompt for search reformulation
+    prompt = f"""Поиск по запросу '{query}' не дал хороших результатов (score < 0.4).
+
+Попробуй переформулировать запрос:
+- Используй синонимы
+- Попробуй английский/русский варианты
+- Ищи по связанным терминам
+
+Используй search_items несколько раз с разными формулировками.
+Если нашёл релевантные записи — покажи их.
+Если ничего не нашёл — так и скажи."""
+
+    context = message_history.get_context_with_search_info(user_id, limit=3)
+    result = await run_agent_loop(user_id, prompt, context)
+
+    if result.success and "ничего" not in result.response.lower():
+        return result.response
+
+    return None
 
 
 async def process_action(message: Message, text: str) -> None:
