@@ -7,6 +7,11 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
+from dotenv import load_dotenv
+
+# Load .env file for local development
+load_dotenv()
+
 
 @dataclass
 class DatabaseConfig:
@@ -17,12 +22,14 @@ class DatabaseConfig:
     password: str
     database: str
     ssl: bool = False
+    raw_url: str = ""  # Original DATABASE_URL for special providers
 
     @property
     def url(self) -> str:
         """SQLAlchemy async database URL."""
         base = f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
         if self.ssl:
+            # For Neon and other providers requiring SSL
             return f"{base}?ssl=require"
         return base
 

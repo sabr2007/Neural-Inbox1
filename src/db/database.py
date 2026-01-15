@@ -1,5 +1,6 @@
 # neural-inbox1/src/db/database.py
 """Database connection and session management."""
+import ssl
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -10,12 +11,24 @@ from src.config import config
 from src.db.models import Base
 
 
+# Create SSL context for Neon/cloud PostgreSQL providers
+def _get_connect_args() -> dict:
+    """Get connection arguments based on SSL requirements."""
+    if config.database.ssl:
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        return {"ssl": ssl_context}
+    return {}
+
+
 engine = create_async_engine(
     config.database.url,
     echo=config.debug,
     pool_pre_ping=True,
     pool_size=5,
-    max_overflow=10
+    max_overflow=10,
+    connect_args=_get_connect_args()
 )
 
 async_session_factory = async_sessionmaker(
