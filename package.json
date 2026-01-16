@@ -1,0 +1,11 @@
+{
+    "name": "neural-inbox",
+    "private": true,
+    "scripts": {
+        "build": "cd webapp && npm install && npm run build",
+        "postinstall": "cd webapp && npm install"
+    },
+    "engines": {
+        "node": ">=18"
+    }
+}

@@ -1,5 +1,5 @@
 [build]
-buildCommand = "npm install --prefix webapp && npm run build --prefix webapp"
+buildCommand = "npm run build"
 
 [deploy]
 startCommand = "python -m src.main"
