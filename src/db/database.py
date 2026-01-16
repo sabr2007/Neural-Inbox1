@@ -45,6 +45,20 @@ async def init_db() -> None:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
+        # Update valid_status constraint to include 'processing'
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'valid_status') THEN
+                    ALTER TABLE items DROP CONSTRAINT valid_status;
+                END IF;
+                ALTER TABLE items ADD CONSTRAINT valid_status
+                    CHECK (status IN ('processing', 'inbox', 'active', 'done', 'archived'));
+            EXCEPTION
+                WHEN duplicate_object THEN NULL;
+            END $$;
+        """))
+
 
 async def close_db() -> None:
     """Close database connections."""
