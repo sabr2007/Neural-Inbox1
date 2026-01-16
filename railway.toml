@@ -1,6 +1,7 @@
 [build]
-builder = "nixpacks"
-buildCommand = "cd webapp && npm install && npm run build"
+buildCommand = "npm install --prefix webapp && npm run build --prefix webapp"
 
 [deploy]
 startCommand = "python -m src.main"
+healthcheckPath = "/api/health"
+restartPolicyType = "ON_FAILURE"
