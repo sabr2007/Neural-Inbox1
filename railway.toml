@@ -1,6 +1,3 @@
-[build]
-buildCommand = "npm run build"
-
 [deploy]
 startCommand = "python -m src.main"
 healthcheckPath = "/api/health"
