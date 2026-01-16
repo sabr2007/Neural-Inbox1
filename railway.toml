@@ -1,0 +1,6 @@
+[build]
+builder = "nixpacks"
+buildCommand = "cd webapp && npm install && npm run build"
+
+[deploy]
+startCommand = "python -m src.main"
