@@ -53,6 +53,44 @@ def item_actions_keyboard(item_id: int, item_type: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def delete_item_keyboard(item_id: int) -> InlineKeyboardMarkup:
+    """Simple keyboard with just delete button (for after save)."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="Удалить",
+                callback_data=f"delete:{item_id}"
+            )
+        ]
+    ])
+
+
+def reminder_actions_keyboard(item_id: int) -> InlineKeyboardMarkup:
+    """Keyboard for task reminders with quick actions."""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="✅ Выполнено",
+                callback_data=f"complete:{item_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="+15м",
+                callback_data=f"snooze:{item_id}:15m"
+            ),
+            InlineKeyboardButton(
+                text="+1ч",
+                callback_data=f"snooze:{item_id}:1h"
+            ),
+            InlineKeyboardButton(
+                text="+1д",
+                callback_data=f"snooze:{item_id}:1d"
+            )
+        ]
+    ])
+
+
 def snooze_keyboard(item_id: int) -> InlineKeyboardMarkup:
     """Keyboard for snooze options."""
     return InlineKeyboardMarkup(inline_keyboard=[

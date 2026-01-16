@@ -1,7 +1,7 @@
 # neural-inbox1/src/main.py
 """
 Neural Inbox - Main entry point.
-A Telegram bot that acts as your second brain.
+Runs both Telegram bot and FastAPI server.
 """
 import asyncio
 import logging
@@ -65,7 +65,8 @@ async def on_shutdown(bot: Bot) -> None:
     logger.info("Bot stopped")
 
 
-async def main() -> None:
+async def run_bot() -> None:
+    """Run the Telegram bot."""
     if not config.telegram.bot_token:
         logger.error("TELEGRAM_BOT_TOKEN is not set!")
         sys.exit(1)
@@ -92,11 +93,57 @@ async def main() -> None:
         await bot.session.close()
 
 
+async def run_api() -> None:
+    """Run the FastAPI server."""
+    import uvicorn
+    from src.api.app import app
+    from fastapi.staticfiles import StaticFiles
+
+    # Serve React build if it exists
+    webapp_dist = Path(__file__).parent.parent / "webapp" / "dist"
+    if webapp_dist.exists():
+        # Mount static files AFTER API routes (app already has routes)
+        app.mount("/", StaticFiles(directory=str(webapp_dist), html=True), name="webapp")
+        logger.info(f"Serving webapp from {webapp_dist}")
+    else:
+        logger.warning(f"Webapp dist not found at {webapp_dist}")
+
+    # Get port from environment or default
+    import os
+    port = int(os.getenv("PORT", "8000"))
+
+    config_uvicorn = uvicorn.Config(
+        app,
+        host="0.0.0.0",
+        port=port,
+        log_level="info"
+    )
+    server = uvicorn.Server(config_uvicorn)
+    await server.serve()
+
+
+async def main() -> None:
+    """Run both bot and API server concurrently."""
+    import os
+    mode = os.getenv("RUN_MODE", "both")  # "bot", "api", or "both"
+
+    if mode == "bot":
+        await run_bot()
+    elif mode == "api":
+        await run_api()
+    else:
+        # Run both concurrently
+        await asyncio.gather(
+            run_bot(),
+            run_api()
+        )
+
+
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
+        logger.info("Stopped by user")
     except Exception as e:
         logger.exception(f"Fatal error: {e}")
         sys.exit(1)

@@ -175,6 +175,93 @@ class ItemRepository:
         await self.session.flush()
         return result.rowcount
 
+    async def list_items(
+        self,
+        user_id: int,
+        types: Optional[List[str]] = None,
+        statuses: Optional[List[str]] = None,
+        project_id: Optional[int] = None,
+        limit: int = 20,
+        offset: int = 0
+    ) -> List[Item]:
+        """List items with filters and pagination."""
+        conditions = [Item.user_id == user_id]
+
+        if types:
+            conditions.append(Item.type.in_(types))
+        if statuses:
+            conditions.append(Item.status.in_(statuses))
+        if project_id is not None:
+            conditions.append(Item.project_id == project_id)
+
+        stmt = (
+            select(Item)
+            .where(and_(*conditions))
+            .order_by(Item.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def count_items(
+        self,
+        user_id: int,
+        types: Optional[List[str]] = None,
+        statuses: Optional[List[str]] = None,
+        project_id: Optional[int] = None
+    ) -> int:
+        """Count items with filters."""
+        from sqlalchemy import func
+
+        conditions = [Item.user_id == user_id]
+
+        if types:
+            conditions.append(Item.type.in_(types))
+        if statuses:
+            conditions.append(Item.status.in_(statuses))
+        if project_id is not None:
+            conditions.append(Item.project_id == project_id)
+
+        stmt = select(func.count(Item.id)).where(and_(*conditions))
+        result = await self.session.execute(stmt)
+        return result.scalar() or 0
+
+    async def get_tasks_with_due_dates(
+        self,
+        user_id: int,
+        date_from: Optional[datetime] = None,
+        date_to: Optional[datetime] = None
+    ) -> List[Item]:
+        """Get tasks with due dates in range."""
+        conditions = [
+            Item.user_id == user_id,
+            Item.type == "task"
+        ]
+
+        if date_from:
+            conditions.append(Item.due_at >= date_from)
+        if date_to:
+            conditions.append(Item.due_at <= date_to)
+
+        stmt = (
+            select(Item)
+            .where(and_(*conditions))
+            .order_by(Item.due_at.asc().nullslast())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_all_tasks(self, user_id: int) -> List[Item]:
+        """Get all tasks for user (for Tasks tab)."""
+        stmt = (
+            select(Item)
+            .where(Item.user_id == user_id, Item.type == "task")
+            .order_by(Item.due_at.asc().nullslast(), Item.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
 
 class ProjectRepository:
     def __init__(self, session: AsyncSession):

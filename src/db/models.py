@@ -25,10 +25,10 @@ class ItemType(str, PyEnum):
     NOTE = "note"
     RESOURCE = "resource"
     CONTACT = "contact"
-    EVENT = "event"
 
 
 class ItemStatus(str, PyEnum):
+    PROCESSING = "processing"
     INBOX = "inbox"
     ACTIVE = "active"
     DONE = "done"
@@ -115,8 +115,8 @@ class Item(Base):
     project: Mapped[Optional["Project"]] = relationship(back_populates="items")
 
     __table_args__ = (
-        CheckConstraint("type IN ('task', 'idea', 'note', 'resource', 'contact', 'event')", name="valid_type"),
-        CheckConstraint("status IN ('inbox', 'active', 'done', 'archived')", name="valid_status"),
+        CheckConstraint("type IN ('task', 'idea', 'note', 'resource', 'contact')", name="valid_type"),
+        CheckConstraint("status IN ('processing', 'inbox', 'active', 'done', 'archived')", name="valid_status"),
         Index("idx_items_user_status", "user_id", "status"),
         Index("idx_items_user_type", "user_id", "type"),
     )
