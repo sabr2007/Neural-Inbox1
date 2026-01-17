@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Check, Paperclip, Loader2 } from 'lucide-react'
+import { Check, Paperclip, Loader2, Trash2 } from 'lucide-react'
 import { cn, formatRelativeDate, getTypeEmoji, haptic } from '@/lib/utils'
-import { Item, completeItem } from '@/api/client'
+import { Item, completeItem, deleteItem } from '@/api/client'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
 interface ItemCardProps {
@@ -12,6 +12,7 @@ interface ItemCardProps {
 export default function ItemCard({ item, onClick }: ItemCardProps) {
   const queryClient = useQueryClient()
   const [isCompleting, setIsCompleting] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const completeMutation = useMutation({
     mutationFn: () => completeItem(item.id),
@@ -35,11 +36,37 @@ export default function ItemCard({ item, onClick }: ItemCardProps) {
     },
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteItem(item.id),
+    onMutate: () => {
+      setIsDeleting(true)
+    },
+    onSuccess: () => {
+      haptic('success')
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+    onError: (error) => {
+      console.error('Failed to delete item:', error)
+      haptic('error')
+    },
+    onSettled: () => {
+      setIsDeleting(false)
+    },
+  })
+
   const handleCheckClick = (e: React.MouseEvent) => {
     e.stopPropagation()
     if (item.type === 'task' && item.status !== 'done') {
       completeMutation.mutate()
     }
+  }
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    deleteMutation.mutate()
   }
 
   const isProcessing = item.status === 'processing'
@@ -116,6 +143,21 @@ export default function ItemCard({ item, onClick }: ItemCardProps) {
             )}
           </div>
         </div>
+
+        {/* Delete button for completed tasks */}
+        {isCompleted && (
+          <button
+            onClick={handleDeleteClick}
+            disabled={isDeleting}
+            className="flex-shrink-0 p-2 rounded-full text-red-500 hover:bg-red-500/10 transition-colors"
+          >
+            {isDeleting ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Trash2 size={18} />
+            )}
+          </button>
+        )}
       </div>
     </div>
   )

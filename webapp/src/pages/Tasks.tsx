@@ -10,7 +10,7 @@ import { ItemListSkeleton } from '@/components/Skeleton'
 export default function Tasks() {
   const [selectedItem, setSelectedItem] = useState<Item | null>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
-  const [showCompleted, setShowCompleted] = useState(false)
+  const [showCompleted, setShowCompleted] = useState(true)
 
   const { data, isLoading } = useQuery({
     queryKey: ['tasks', showCompleted],
