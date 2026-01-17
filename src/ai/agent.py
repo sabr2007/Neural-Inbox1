@@ -228,11 +228,17 @@ class IntelligentAgent:
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            raw_content = response.choices[0].message.content
+            logger.debug(f"LLM raw response: {raw_content[:500]}")
+
+            result = json.loads(raw_content)
 
             # Validate structure
             if not isinstance(result, dict):
                 raise AgentError("Invalid LLM response format")
+
+            # Log keys for debugging
+            logger.debug(f"LLM result keys: {list(result.keys())}")
 
             return result
 
@@ -261,6 +267,11 @@ class IntelligentAgent:
 
         for item_data in items_data:
             try:
+                # Validate item_data is a dict
+                if not isinstance(item_data, dict):
+                    logger.warning(f"Invalid item_data type: {type(item_data)}, value: {str(item_data)[:100]}")
+                    continue
+
                 # Parse due_at if provided
                 due_at = None
                 due_at_raw = item_data.get("due_at_raw")

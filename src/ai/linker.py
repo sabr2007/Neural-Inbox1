@@ -38,6 +38,11 @@ async def create_links_batch(
 
     for suggestion in suggested_links:
         try:
+            # Validate suggestion is a dict
+            if not isinstance(suggestion, dict):
+                logger.warning(f"Invalid suggestion type: {type(suggestion)}")
+                continue
+
             new_item_index = suggestion.get("new_item_index", 0)
             existing_item_id = suggestion.get("existing_item_id")
             reason = suggestion.get("reason", "")
