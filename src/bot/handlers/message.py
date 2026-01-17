@@ -135,6 +135,27 @@ async def _classify_and_update(
         classifier = ContentClassifier()
         classification = await classifier.classify(text)
 
+        # Handle 'chat' type - don't save, just respond
+        if classification.type == "chat":
+            # Delete the temporary item
+            async with get_session() as session:
+                item_repo = ItemRepository(session)
+                await item_repo.delete(item_id, user_id)
+            
+            # Respond to user's greeting/question
+            chat_responses = {
+                "привет": "Привет! Я Neural Inbox твой второй мозг. Просто отправь мне текст, голосовые, фото или документы я всё сохраню и классифицирую!",
+                "как дела": "Отлично, работаю! Готов помочь тебе организовать задачи, заметки и идеи.",
+                "что умеешь": "Я умею:\n Сохранять и классифицировать заметки\n Создавать задачи с дедлайнами\n Фиксировать идеи\n Парсить ссылки\n Распознавать голосовые\n Анализировать фото\n Извлекать текст из PDF",
+            }
+            
+            text_lower = text.lower().strip()
+            response = next((resp for key, resp in chat_responses.items() if key in text_lower), 
+                          "Привет! Я готов сохранять твои заметки, задачи и идеи. Просто отправь мне что-нибудь!")
+            
+            await status_message.edit_text(response)
+            return
+
         # Generate embedding
         embedding_text = f"{classification.title} {text}"
         embedding = await get_embedding(embedding_text)
