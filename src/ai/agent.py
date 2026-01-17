@@ -1,6 +1,5 @@
 # neural-inbox1/src/ai/agent.py
 """Intelligent Agent - orchestrator for message processing."""
-import asyncio
 from src.db.models import Item
 import json
 import logging
@@ -162,18 +161,14 @@ class IntelligentAgent:
         user_id: int,
         text: str
     ) -> AgentContext:
-        """Gather user context in parallel."""
+        """Gather user context sequentially (AsyncSession doesn't support parallel queries)."""
         item_repo = ItemRepository(session)
         project_repo = ProjectRepository(session)
 
-        # Run context queries in parallel
-        projects_task = project_repo.get_for_context(user_id)
-        recent_task = item_repo.get_recent_items(user_id, limit=20)
-        similar_task = self._get_similar_items(session, user_id, text)
-
-        projects, recent_items, similar_items = await asyncio.gather(
-            projects_task, recent_task, similar_task
-        )
+        # Run context queries sequentially - AsyncSession doesn't support parallel operations
+        projects = await project_repo.get_for_context(user_id)
+        recent_items = await item_repo.get_recent_items(user_id, limit=20)
+        similar_items = await self._get_similar_items(session, user_id, text)
 
         return AgentContext(
             projects=projects,
