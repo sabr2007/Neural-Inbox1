@@ -20,9 +20,15 @@ export default function ItemCard({ item, onClick }: ItemCardProps) {
       haptic('success')
     },
     onSuccess: () => {
-      // Invalidate relevant queries
+      // Invalidate all relevant queries
       queryClient.invalidateQueries({ queryKey: ['items'] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+    onError: (error) => {
+      console.error('Failed to complete item:', error)
+      haptic('error')
     },
     onSettled: () => {
       setIsCompleting(false)

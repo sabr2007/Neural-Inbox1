@@ -22,9 +22,16 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
     mutationFn: () => completeItem(item.id),
     onSuccess: () => {
       haptic('success')
+      // Invalidate all relevant queries
       queryClient.invalidateQueries({ queryKey: ['items'] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
       onClose()
+    },
+    onError: (error) => {
+      console.error('Failed to complete item:', error)
+      haptic('error')
     },
   })
 
@@ -32,9 +39,16 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
     mutationFn: () => deleteItem(item.id),
     onSuccess: () => {
       haptic('success')
+      // Invalidate all relevant queries
       queryClient.invalidateQueries({ queryKey: ['items'] })
       queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
       onClose()
+    },
+    onError: (error) => {
+      console.error('Failed to delete item:', error)
+      haptic('error')
     },
   })
 
