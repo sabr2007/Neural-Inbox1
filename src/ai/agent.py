@@ -1,6 +1,7 @@
 # neural-inbox1/src/ai/agent.py
 """Intelligent Agent - orchestrator for message processing."""
 import asyncio
+from src.db.models import Item
 import json
 import logging
 import time
