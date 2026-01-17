@@ -79,7 +79,8 @@ class IntelligentAgent:
         self,
         user_id: int,
         text: str,
-        source: str
+        source: str,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> AgentResult:
         """
         Process a user message and return structured result.
@@ -88,6 +89,7 @@ class IntelligentAgent:
             user_id: Telegram user ID
             text: Message text (transcribed if voice)
             source: Source type (text, voice, photo, etc.)
+            metadata: Optional file attachment metadata (file_id, type, filename)
 
         Returns:
             AgentResult with created items, links, and optional chat response
@@ -117,7 +119,7 @@ class IntelligentAgent:
 
             # 3. PERSIST & LINK (parallel where possible)
             db_items = await self._persist_items(
-                session, user_id, text, source, items_data
+                session, user_id, text, source, items_data, metadata=metadata
             )
 
             # Generate embeddings for new items
@@ -256,9 +258,10 @@ class IntelligentAgent:
         user_id: int,
         original_text: str,
         source: str,
-        items_data: List[Dict[str, Any]]
+        items_data: List[Dict[str, Any]],
+        metadata: Optional[Dict[str, Any]] = None
     ) -> List[Item]:
-        """Create items in database."""
+        """Create items in database with optional attachment metadata."""
         if not items_data:
             return []
 
@@ -283,6 +286,15 @@ class IntelligentAgent:
                     except (ValueError, TypeError):
                         pass
 
+                # Prepare attachment fields from metadata (inherited from source file)
+                attachment_kwargs = {}
+                if metadata:
+                    attachment_kwargs = {
+                        "attachment_file_id": metadata.get("attachment_file_id"),
+                        "attachment_type": metadata.get("attachment_type"),
+                        "attachment_filename": metadata.get("attachment_filename")
+                    }
+
                 item = await item_repo.create(
                     user_id=user_id,
                     type=item_data.get("type", "note"),
@@ -295,7 +307,8 @@ class IntelligentAgent:
                     due_at_raw=due_at_raw,
                     priority=item_data.get("priority"),
                     tags=item_data.get("tags", []),
-                    project_id=item_data.get("project_id")
+                    project_id=item_data.get("project_id"),
+                    **attachment_kwargs
                 )
                 created_items.append(item)
 

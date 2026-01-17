@@ -7,6 +7,7 @@ import logging
 import re
 import tempfile
 from pathlib import Path
+from typing import Optional, Dict, Any
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message
@@ -72,7 +73,8 @@ async def redirect_to_webapp(message: Message) -> None:
 async def process_with_agent(
     message: Message,
     text: str,
-    source: str
+    source: str,
+    metadata: Optional[Dict[str, Any]] = None
 ) -> None:
     """
     Process message with IntelligentAgent.
@@ -82,6 +84,12 @@ async def process_with_agent(
     2. Ensure user exists
     3. Start background task with agent
     4. Handle result (edit message accordingly)
+    
+    Args:
+        message: Telegram message
+        text: Text to process
+        source: Source type (text, voice, photo, pdf, etc.)
+        metadata: Optional file attachment metadata (file_id, type, filename)
     """
     user_id = message.from_user.id
 
@@ -99,7 +107,8 @@ async def process_with_agent(
             user_id=user_id,
             text=text,
             source=source,
-            status_message=status_message
+            status_message=status_message,
+            metadata=metadata
         )
     )
 
@@ -108,14 +117,15 @@ async def _process_with_agent(
     user_id: int,
     text: str,
     source: str,
-    status_message: Message
+    status_message: Message,
+    metadata: Optional[Dict[str, Any]] = None
 ) -> None:
     """Background task: process with IntelligentAgent."""
     agent = IntelligentAgent()
 
     try:
         result = await asyncio.wait_for(
-            agent.process(user_id, text, source),
+            agent.process(user_id, text, source, metadata=metadata),
             timeout=10.0
         )
 
@@ -148,15 +158,15 @@ async def _process_with_agent(
 
     except asyncio.TimeoutError:
         logger.error(f"Agent timeout for user {user_id}")
-        await _fallback_save(user_id, text, source, status_message)
+        await _fallback_save(user_id, text, source, status_message, metadata)
 
     except AgentError as e:
         logger.error(f"Agent error for user {user_id}: {e}")
-        await _fallback_save(user_id, text, source, status_message)
+        await _fallback_save(user_id, text, source, status_message, metadata)
 
     except Exception as e:
         logger.error(f"Unexpected error for user {user_id}: {e}", exc_info=True)
-        await _fallback_save(user_id, text, source, status_message)
+        await _fallback_save(user_id, text, source, status_message, metadata)
 
 
 def _format_items_response(items, links) -> str:
@@ -213,12 +223,23 @@ async def _fallback_save(
     user_id: int,
     text: str,
     source: str,
-    status_message: Message
+    status_message: Message,
+    metadata: Optional[Dict[str, Any]] = None
 ) -> None:
     """Fallback: save original text as note in Inbox."""
     try:
         async with get_session() as session:
             item_repo = ItemRepository(session)
+            
+            # Prepare attachment fields from metadata
+            attachment_kwargs = {}
+            if metadata:
+                attachment_kwargs = {
+                    "attachment_file_id": metadata.get("attachment_file_id"),
+                    "attachment_type": metadata.get("attachment_type"),
+                    "attachment_filename": metadata.get("attachment_filename")
+                }
+            
             item = await item_repo.create(
                 user_id=user_id,
                 type="note",
@@ -226,7 +247,8 @@ async def _fallback_save(
                 title=text[:100] + "..." if len(text) > 100 else text,
                 content=text,
                 original_input=text,
-                source=source
+                source=source,
+                **attachment_kwargs
             )
 
         await status_message.edit_text(
@@ -327,8 +349,15 @@ async def handle_photo(message: Message) -> None:
             await message.reply(result.error)
             return
 
+        # Prepare metadata for attachment inheritance
+        metadata = {
+            "attachment_file_id": photo.file_id,
+            "attachment_type": "photo",
+            "attachment_filename": None  # Photos don't have filenames
+        }
+
         # Process with agent
-        await process_with_agent(message, result.text, ItemSource.PHOTO.value)
+        await process_with_agent(message, result.text, ItemSource.PHOTO.value, metadata=metadata)
 
     finally:
         if file_path.exists():
@@ -377,8 +406,15 @@ async def handle_document(message: Message) -> None:
         pages_info = result.metadata.get("page_count", result.metadata.get("estimated_pages", "?"))
         await message.reply(f"{title_info}\nСтраниц: {pages_info}")
 
+        # Prepare metadata for attachment inheritance
+        metadata = {
+            "attachment_file_id": doc.file_id,
+            "attachment_type": "document",
+            "attachment_filename": file_name
+        }
+
         # Process with agent
-        await process_with_agent(message, result.text, source)
+        await process_with_agent(message, result.text, source, metadata=metadata)
 
     finally:
         if file_path.exists():
