@@ -126,7 +126,7 @@ async def _process_with_agent(
     try:
         result = await asyncio.wait_for(
             agent.process(user_id, text, source, metadata=metadata),
-            timeout=10.0
+            timeout=30.0
         )
 
         # Handle empty result (nothing created, no chat response)
