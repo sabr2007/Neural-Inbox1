@@ -53,6 +53,7 @@ export interface Item {
   priority?: 'high' | 'medium' | 'low'
   attachment_file_id?: string
   attachment_type?: string
+  attachment_filename?: string
   origin_user_name?: string
   created_at: string
   updated_at: string
@@ -152,6 +153,10 @@ export async function moveItem(id: number, projectId: number | null): Promise<It
     method: 'PATCH',
     body: JSON.stringify({ project_id: projectId }),
   })
+}
+
+export async function sendToChat(id: number): Promise<void> {
+  await fetchApi(`/items/${id}/send-to-chat`, { method: 'POST' })
 }
 
 // ============== Tasks API ==============

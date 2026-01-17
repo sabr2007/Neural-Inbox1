@@ -4,6 +4,7 @@ CRUD operations for items.
 """
 from typing import Optional, List
 
+from aiogram import Bot
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.api.auth import get_user_id
@@ -11,6 +12,7 @@ from src.api.schemas import (
     ItemResponse, ItemUpdate, ItemMoveRequest,
     ItemsListResponse, SuccessResponse
 )
+from src.config import config
 from src.db.database import get_session
 from src.db.repository import ItemRepository
 
@@ -145,3 +147,34 @@ async def move_item(
             raise HTTPException(status_code=404, detail="Item not found")
 
         return ItemResponse.model_validate(item)
+
+
+@router.post("/{item_id}/send-to-chat", response_model=SuccessResponse)
+async def send_to_chat(
+    item_id: int,
+    user_id: int = Depends(get_user_id)
+):
+    """Send item attachment back to user's Telegram chat."""
+    async with get_session() as session:
+        item_repo = ItemRepository(session)
+        item = await item_repo.get(item_id, user_id)
+
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        if not item.attachment_file_id:
+            raise HTTPException(status_code=400, detail="Item has no attachment")
+
+        # Send file via Telegram Bot API
+        bot = Bot(token=config.telegram.bot_token)
+        try:
+            if item.attachment_type == "photo":
+                await bot.send_photo(chat_id=user_id, photo=item.attachment_file_id)
+            else:
+                await bot.send_document(chat_id=user_id, document=item.attachment_file_id)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to send file: {str(e)}")
+        finally:
+            await bot.session.close()
+
+        return SuccessResponse(message="File sent to chat")

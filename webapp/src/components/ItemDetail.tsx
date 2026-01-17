@@ -3,10 +3,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Drawer } from 'vaul'
 import {
   X, Calendar, Tag, Folder, Trash2, Check, MoreVertical,
-  Paperclip, Clock
+  Paperclip, Clock, Send, FileText, Image
 } from 'lucide-react'
 import { cn, formatRelativeDate, formatTime, getTypeEmoji, getTypeLabel, haptic } from '@/lib/utils'
-import { Item, completeItem, deleteItem } from '@/api/client'
+import { Item, completeItem, deleteItem, sendToChat } from '@/api/client'
 
 interface ItemDetailProps {
   item: Item
@@ -48,6 +48,17 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
     },
     onError: (error) => {
       console.error('Failed to delete item:', error)
+      haptic('error')
+    },
+  })
+
+  const sendToChatMutation = useMutation({
+    mutationFn: () => sendToChat(item.id),
+    onSuccess: () => {
+      haptic('success')
+    },
+    onError: (error) => {
+      console.error('Failed to send to chat:', error)
       haptic('error')
     },
   })
@@ -163,13 +174,6 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
                 </div>
               )}
 
-              {item.attachment_file_id && (
-                <div className="flex items-center gap-3 text-tg-text">
-                  <Paperclip size={18} className="text-tg-hint" />
-                  <span>Вложение ({item.attachment_type})</span>
-                </div>
-              )}
-
               <div className="flex items-center gap-3 text-tg-hint text-sm">
                 <Clock size={16} />
                 <span>
@@ -183,8 +187,36 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
               </div>
             </div>
 
-            {/* Original content */}
-            {(item.content || item.original_input) && (
+            {/* Attachment section for documents/photos */}
+            {item.attachment_file_id && (item.attachment_type === 'document' || item.attachment_type === 'photo') && (
+              <div className="border-t border-tg-secondary-bg pt-4">
+                <div className="flex items-center gap-2 mb-3 text-tg-hint text-sm">
+                  {item.attachment_type === 'photo' ? (
+                    <Image size={14} />
+                  ) : (
+                    <FileText size={14} />
+                  )}
+                  <span>Вложение</span>
+                </div>
+                <div className="p-4 bg-tg-secondary-bg rounded-lg">
+                  <p className="text-tg-text font-medium mb-3">
+                    {item.attachment_filename || (item.attachment_type === 'photo' ? 'Фото' : 'Документ')}
+                  </p>
+                  <button
+                    onClick={() => sendToChatMutation.mutate()}
+                    disabled={sendToChatMutation.isPending}
+                    className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary-600 transition-colors disabled:opacity-50"
+                  >
+                    <Send size={16} />
+                    {sendToChatMutation.isPending ? 'Отправка...' : 'Отправить в Telegram'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Original content - only for non-document/photo items */}
+            {(item.content || item.original_input) &&
+             !(item.attachment_type === 'document' || item.attachment_type === 'photo') && (
               <div className="border-t border-tg-secondary-bg pt-4">
                 <div className="flex items-center gap-2 mb-2 text-tg-hint text-sm">
                   <Paperclip size={14} />

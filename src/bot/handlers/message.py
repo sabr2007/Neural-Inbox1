@@ -268,9 +268,6 @@ async def handle_voice(message: Message) -> None:
             await message.reply("Не удалось распознать голосовое сообщение.")
             return
 
-        # Show transcription briefly
-        await message.reply(f"🎤 {text[:200]}{'...' if len(text) > 200 else ''}")
-
         # Save transcribed text
         await save_and_classify_background(message, text, ItemSource.VOICE.value)
 
@@ -359,7 +356,8 @@ async def handle_document(message: Message) -> None:
             result.text,
             source,
             attachment_file_id=doc.file_id,
-            attachment_type="document"
+            attachment_type="document",
+            attachment_filename=file_name
         )
 
     finally:

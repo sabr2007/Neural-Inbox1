@@ -106,6 +106,7 @@ class Item(Base):
     origin_user_name: Mapped[Optional[str]] = mapped_column(String(255))
     attachment_file_id: Mapped[Optional[str]] = mapped_column(String(255))
     attachment_type: Mapped[Optional[str]] = mapped_column(String(20))
+    attachment_filename: Mapped[Optional[str]] = mapped_column(String(255))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

@@ -24,6 +24,7 @@ class ItemResponse(BaseModel):
     priority: Optional[str] = None
     attachment_file_id: Optional[str] = None
     attachment_type: Optional[str] = None
+    attachment_filename: Optional[str] = None
     origin_user_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
