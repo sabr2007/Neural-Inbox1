@@ -11,8 +11,7 @@ from aiogram.types import CallbackQuery
 from src.db.database import get_session
 from src.db.repository import ItemRepository
 from src.bot.keyboards import (
-    snooze_keyboard, confirm_delete_keyboard, item_actions_keyboard,
-    delete_item_keyboard
+    snooze_keyboard, confirm_delete_keyboard
 )
 
 logger = logging.getLogger(__name__)
