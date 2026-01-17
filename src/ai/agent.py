@@ -14,7 +14,7 @@ from src.config import config
 from src.db.database import get_session
 from src.db.repository import ItemRepository, ProjectRepository, ItemLinkRepository
 from src.db.search import vector_search
-from src.db.models import Item, ItemLink, ItemStatus
+from src.db.models import ItemStatus
 from src.ai.prompts import AgentContext, build_prompt
 from src.ai.model_selector import ModelSelector
 from src.ai.embeddings import get_embedding, get_embeddings_batch
@@ -29,10 +29,30 @@ class AgentError(Exception):
 
 
 @dataclass
+class CreatedItem:
+    """Simple representation of a created item (detached from DB session)."""
+    id: int
+    type: str
+    title: str
+    due_at: Optional[datetime] = None
+    due_at_raw: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+
+
+@dataclass
+class CreatedLink:
+    """Simple representation of a created link (detached from DB session)."""
+    id: int
+    item_id: int
+    related_item_id: int
+    reason: Optional[str] = None
+
+
+@dataclass
 class AgentResult:
     """Result of agent processing."""
-    items_created: List[Item] = field(default_factory=list)
-    links_created: List[ItemLink] = field(default_factory=list)
+    items_created: List[CreatedItem] = field(default_factory=list)
+    links_created: List[CreatedLink] = field(default_factory=list)
     chat_response: Optional[str] = None
     processing_time: float = 0.0
 
@@ -90,20 +110,43 @@ class IntelligentAgent:
                 )
 
             # 3. PERSIST & LINK (parallel where possible)
-            items_created = await self._persist_items(
+            db_items = await self._persist_items(
                 session, user_id, text, source, llm_result.get("items", [])
             )
 
             # Generate embeddings for new items
-            if items_created:
-                await self._generate_embeddings(session, items_created)
+            if db_items:
+                await self._generate_embeddings(session, db_items)
 
             # Create links from suggestions
-            links_created = []
-            if items_created and llm_result.get("suggested_links"):
-                links_created = await create_links_batch(
-                    session, items_created, llm_result["suggested_links"]
+            db_links = []
+            if db_items and llm_result.get("suggested_links"):
+                db_links = await create_links_batch(
+                    session, db_items, llm_result["suggested_links"]
                 )
+
+            # Convert ORM objects to simple dataclasses before session closes
+            items_created = [
+                CreatedItem(
+                    id=item.id,
+                    type=item.type,
+                    title=item.title or "",
+                    due_at=item.due_at,
+                    due_at_raw=item.due_at_raw,
+                    tags=item.tags or []
+                )
+                for item in db_items
+            ]
+
+            links_created = [
+                CreatedLink(
+                    id=link.id,
+                    item_id=link.item_id,
+                    related_item_id=link.related_item_id,
+                    reason=link.reason
+                )
+                for link in db_links
+            ]
 
         return AgentResult(
             items_created=items_created,

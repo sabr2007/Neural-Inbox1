@@ -311,6 +311,9 @@ async def vector_search(
 
     emb_literal = _format_embedding(query_embedding)
 
+    # Build dynamic filter to avoid asyncpg type inference issues with None
+    type_condition = "AND type = :type_filter" if type_filter else ""
+
     sql = text(f"""
         SELECT
             id,
@@ -321,20 +324,21 @@ async def vector_search(
         FROM items
         WHERE user_id = :user_id
             AND embedding IS NOT NULL
-            AND (:type_filter IS NULL OR type = :type_filter)
+            {type_condition}
         ORDER BY embedding <=> '{emb_literal}'::vector
         LIMIT :limit
     """)
 
+    # Build params dict dynamically
+    params = {
+        "user_id": user_id,
+        "limit": limit
+    }
+    if type_filter:
+        params["type_filter"] = type_filter
+
     try:
-        result = await session.execute(
-            sql,
-            {
-                "user_id": user_id,
-                "type_filter": type_filter,
-                "limit": limit
-            }
-        )
+        result = await session.execute(sql, params)
 
         rows = result.fetchall()
         return [
