@@ -57,9 +57,9 @@ AGENT_SYSTEM_PROMPT = """Ты — Второй Мозг системы Neural In
 - Вопрос о системе → объясни что умеешь
 
 ## Формат ответа (JSON):
-{
+{{
   "items": [
-    {
+    {{
       "type": "task|idea|note|resource|contact",
       "title": "краткое название (до 100 символов)",
       "content": "полный текст",
@@ -67,17 +67,17 @@ AGENT_SYSTEM_PROMPT = """Ты — Второй Мозг системы Neural In
       "project_id": 123 | null,
       "due_at_raw": "завтра в 10" | null,
       "priority": "high|medium|low" | null
-    }
+    }}
   ],
   "chat_response": "текст ответа" | null,
   "suggested_links": [
-    {
+    {{
       "new_item_index": 0,
       "existing_item_id": 123,
       "reason": "Обе задачи про маркетинг"
-    }
+    }}
   ]
-}"""
+}}"""
 
 
 def build_prompt(user_text: str, context: AgentContext) -> str:
