@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS item_links (
     item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     related_item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     link_type VARCHAR(20),
+    reason VARCHAR(200),
     confidence FLOAT,
     confirmed BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
