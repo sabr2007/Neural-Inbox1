@@ -21,6 +21,7 @@ class UserRepository:
             user = User(user_id=user_id)
             self.session.add(user)
             await self.session.flush()
+            await self.session.refresh(user)
         return user
 
     async def get(self, user_id: int) -> Optional[User]:
@@ -50,6 +51,8 @@ class ItemRepository:
         )
         self.session.add(item)
         await self.session.flush()
+        # Refresh to get server-side default values (e.g., created_at, updated_at)
+        await self.session.refresh(item)
         return item
 
     async def get(self, item_id: int, user_id: int) -> Optional[Item]:
@@ -75,6 +78,8 @@ class ItemRepository:
                 if hasattr(item, key):
                     setattr(item, key, value)
             await self.session.flush()
+            # Refresh to get server-side updated values (e.g., updated_at)
+            await self.session.refresh(item)
         return item
 
     async def complete(self, item_id: int, user_id: int) -> Optional[Item]:
@@ -271,6 +276,7 @@ class ProjectRepository:
         project = Project(user_id=user_id, name=name, color=color, emoji=emoji)
         self.session.add(project)
         await self.session.flush()
+        await self.session.refresh(project)
         return project
 
     async def get(self, project_id: int, user_id: int) -> Optional[Project]:
@@ -301,6 +307,7 @@ class ProjectRepository:
                 if hasattr(project, key):
                     setattr(project, key, value)
             await self.session.flush()
+            await self.session.refresh(project)
         return project
 
     async def delete(self, project_id: int, user_id: int) -> bool:
@@ -342,4 +349,5 @@ class ItemLinkRepository:
         )
         self.session.add(link)
         await self.session.flush()
+        await self.session.refresh(link)
         return link

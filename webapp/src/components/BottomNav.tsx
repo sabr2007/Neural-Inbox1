@@ -11,7 +11,7 @@ interface BottomNavProps {
 
 const tabs: { id: Tab; label: string; icon: typeof Inbox }[] = [
   { id: 'projects', label: 'Проекты', icon: FolderOpen },
-  { id: 'inbox', label: 'Входящие', icon: Inbox },
+  { id: 'inbox', label: 'Inbox', icon: Inbox },
   { id: 'search', label: 'Поиск', icon: Search },
   { id: 'tasks', label: 'Задачи', icon: CheckSquare },
   { id: 'calendar', label: 'Календарь', icon: Calendar },
