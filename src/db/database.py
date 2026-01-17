@@ -59,6 +59,19 @@ async def init_db() -> None:
             END $$;
         """))
 
+        # Add attachment_filename column if it doesn't exist
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'items' AND column_name = 'attachment_filename'
+                ) THEN
+                    ALTER TABLE items ADD COLUMN attachment_filename VARCHAR(255);
+                END IF;
+            END $$;
+        """))
+
 
 async def close_db() -> None:
     """Close database connections."""
