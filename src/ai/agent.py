@@ -229,7 +229,7 @@ class IntelligentAgent:
             )
 
             raw_content = response.choices[0].message.content
-            logger.debug(f"LLM raw response: {raw_content[:500]}")
+            logger.info(f"LLM raw response (first 200 chars): {raw_content[:200]}")
 
             result = json.loads(raw_content)
 
@@ -238,7 +238,7 @@ class IntelligentAgent:
                 raise AgentError("Invalid LLM response format")
 
             # Log keys for debugging
-            logger.debug(f"LLM result keys: {list(result.keys())}")
+            logger.info(f"LLM result keys: {list(result.keys())}")
 
             return result
 

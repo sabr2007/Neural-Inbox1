@@ -155,7 +155,7 @@ async def _process_with_agent(
         await _fallback_save(user_id, text, source, status_message)
 
     except Exception as e:
-        logger.error(f"Unexpected error for user {user_id}: {e}")
+        logger.error(f"Unexpected error for user {user_id}: {e}", exc_info=True)
         await _fallback_save(user_id, text, source, status_message)
 
 
