@@ -102,8 +102,14 @@ class IntelligentAgent:
             model = ModelSelector.select(text, source)
             llm_result = await self._analyze_with_llm(text, context, model)
 
+            # Validate and extract items
+            items_data = llm_result.get("items", [])
+            if not isinstance(items_data, list):
+                logger.error(f"Invalid items format from LLM: {type(items_data)}")
+                raise AgentError(f"Invalid items format: expected list, got {type(items_data).__name__}")
+
             # Handle chat-only response (no items)
-            if not llm_result.get("items") and llm_result.get("chat_response"):
+            if not items_data and llm_result.get("chat_response"):
                 return AgentResult(
                     chat_response=llm_result["chat_response"],
                     processing_time=time.time() - start_time
@@ -111,7 +117,7 @@ class IntelligentAgent:
 
             # 3. PERSIST & LINK (parallel where possible)
             db_items = await self._persist_items(
-                session, user_id, text, source, llm_result.get("items", [])
+                session, user_id, text, source, items_data
             )
 
             # Generate embeddings for new items
@@ -120,9 +126,10 @@ class IntelligentAgent:
 
             # Create links from suggestions
             db_links = []
-            if db_items and llm_result.get("suggested_links"):
+            suggested_links = llm_result.get("suggested_links", [])
+            if db_items and isinstance(suggested_links, list) and suggested_links:
                 db_links = await create_links_batch(
-                    session, db_items, llm_result["suggested_links"]
+                    session, db_items, suggested_links
                 )
 
             # Convert ORM objects to simple dataclasses before session closes
