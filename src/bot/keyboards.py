@@ -6,53 +6,6 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 from src.config import config
 
-
-def clarification_keyboard(original_text: str) -> InlineKeyboardMarkup:
-    """Keyboard for clarifying ambiguous intent (save vs query)."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="Сохранить",
-                callback_data=f"clarify:save"
-            ),
-            InlineKeyboardButton(
-                text="Найти",
-                callback_data=f"clarify:query"
-            )
-        ]
-    ])
-
-
-def item_actions_keyboard(item_id: int, item_type: str) -> InlineKeyboardMarkup:
-    """Keyboard with actions for a saved item."""
-    buttons = [
-        [
-            InlineKeyboardButton(
-                text="Выполнено",
-                callback_data=f"complete:{item_id}"
-            ),
-            InlineKeyboardButton(
-                text="Удалить",
-                callback_data=f"delete:{item_id}"
-            )
-        ]
-    ]
-
-    if item_type == "task":
-        buttons.append([
-            InlineKeyboardButton(
-                text="Отложить",
-                callback_data=f"snooze:{item_id}"
-            ),
-            InlineKeyboardButton(
-                text="Изменить",
-                callback_data=f"edit:{item_id}"
-            )
-        ])
-
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
 def delete_item_keyboard(item_id: int) -> InlineKeyboardMarkup:
     """Simple keyboard with just delete button (for after save)."""
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -168,82 +121,7 @@ def confirm_delete_keyboard(item_id: int) -> InlineKeyboardMarkup:
     ])
 
 
-def search_results_keyboard(items: list, page: int = 0, has_more: bool = False) -> InlineKeyboardMarkup:
-    """Keyboard for paginating search results."""
-    buttons = []
-
-    for item in items:
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"{item.title[:40]}..." if len(item.title) > 40 else item.title,
-                callback_data=f"view:{item.id}"
-            )
-        ])
-
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(
-            InlineKeyboardButton(text="<< Назад", callback_data=f"search_page:{page-1}")
-        )
-    if has_more:
-        nav_buttons.append(
-            InlineKeyboardButton(text="Вперёд >>", callback_data=f"search_page:{page+1}")
-        )
-
-    if nav_buttons:
-        buttons.append(nav_buttons)
-
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def confirmation_keyboard(token: str, action_text: str) -> InlineKeyboardMarkup:
-    """Keyboard for confirming batch operations."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text=f"{action_text}",
-                callback_data=f"batch_confirm:{token}"
-            ),
-            InlineKeyboardButton(
-                text="Отмена",
-                callback_data=f"batch_cancel:{token}"
-            )
-        ]
-    ])
 
 
-def agent_confirmation_keyboard() -> InlineKeyboardMarkup:
-    """Keyboard for confirming agent operations."""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="Да",
-                callback_data="agent_confirm_yes"
-            ),
-            InlineKeyboardButton(
-                text="Нет",
-                callback_data="agent_confirm_no"
-            )
-        ]
-    ])
-
-
-def search_result_buttons_keyboard(results: list) -> InlineKeyboardMarkup:
-    """Keyboard with 'Показать' buttons for search results.
-
-    Args:
-        results: List of SearchResult objects with id, title, type attributes
-    """
-    buttons = []
-
-    for i, result in enumerate(results, 1):
-        # Truncate title if too long for button
-        title = result.title[:25] + "..." if len(result.title) > 25 else result.title
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"{i}. {title} [Показать]",
-                callback_data=f"view:{result.id}"
-            )
-        ])
-
-    return InlineKeyboardMarkup(inline_keyboard=buttons)

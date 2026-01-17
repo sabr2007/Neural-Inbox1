@@ -39,7 +39,7 @@ async def handle_complete(callback: CallbackQuery) -> None:
 
         if item:
             await callback.message.edit_text(
-                f"✅ Выполнено: {item.title}"
+                f"✔️ Выполнено: {item.title}"
             )
         else:
             await callback.answer("Элемент не найден", show_alert=True)
@@ -125,61 +125,13 @@ async def handle_snooze(callback: CallbackQuery) -> None:
 
         if item:
             await callback.message.edit_text(
-                f"⏰ Напомню {duration_text}: {item.title}"
+                f" Напомню {duration_text}: {item.title}"
             )
         else:
             await callback.answer("Элемент не найден", show_alert=True)
             return
 
     await callback.answer("Отложено!")
-
-
-@callback_router.callback_query(F.data.startswith("view:"))
-async def handle_view_item(callback: CallbackQuery) -> None:
-    """View item details."""
-    item_id = int(callback.data.split(":")[1])
-    user_id = callback.from_user.id
-
-    async with get_session() as session:
-        item_repo = ItemRepository(session)
-        item = await item_repo.get(item_id, user_id)
-
-        if not item:
-            await callback.answer("Элемент не найден", show_alert=True)
-            return
-
-        # Format item details
-        type_emoji = {
-            "task": "✅",
-            "idea": "💡",
-            "note": "📝",
-            "resource": "🔗",
-            "contact": "👤"
-        }
-        emoji = type_emoji.get(item.type, "📝")
-
-        details = f"{emoji} **{item.title}**\n"
-
-        if item.content:
-            details += f"\n{item.content[:500]}"
-            if len(item.content) > 500:
-                details += "..."
-
-        if item.due_at_raw:
-            details += f"\n\n📅 Срок: {item.due_at_raw}"
-
-        if item.tags:
-            details += f"\n🏷️ Теги: {' '.join(item.tags)}"
-
-        details += f"\n\n📅 Создано: {item.created_at.strftime('%d.%m.%Y %H:%M')}"
-
-        await callback.message.edit_text(
-            details,
-            reply_markup=item_actions_keyboard(item.id, item.type),
-            parse_mode="Markdown"
-        )
-
-    await callback.answer()
 
 
 @callback_router.callback_query(F.data.startswith("link:"))
@@ -204,92 +156,6 @@ async def handle_link_action(callback: CallbackQuery) -> None:
         await callback.answer()
 
 
-@callback_router.callback_query(F.data.startswith("batch_confirm:"))
-async def handle_batch_confirm(callback: CallbackQuery) -> None:
-    """Handle batch operation confirmation."""
-    token = callback.data.split(":")[1]
-    user_id = callback.from_user.id
-
-    from src.ai.batch_confirmations import get_pending, clear_pending
-    from src.db.repository import ProjectRepository
-
-    pending = get_pending(token)
-    if not pending:
-        await callback.answer("Время подтверждения истекло. Попробуйте заново.", show_alert=True)
-        return
-
-    if pending.user_id != user_id:
-        await callback.answer("Операция недоступна.", show_alert=True)
-        return
-
-    async with get_session() as session:
-        item_repo = ItemRepository(session)
-        project_repo = ProjectRepository(session)
-
-        if pending.action == "update":
-            # Parse update values from stored updates
-            update_values = {}
-            updates = pending.updates or {}
-            if "status" in updates:
-                update_values["status"] = updates["status"]
-            if "priority" in updates:
-                update_values["priority"] = updates["priority"]
-            if "project_id" in updates:
-                update_values["project_id"] = updates["project_id"]
-            if "tags" in updates:
-                update_values["tags"] = updates["tags"]
-            if "due_at" in updates:
-                from datetime import datetime
-                try:
-                    update_values["due_at"] = datetime.fromisoformat(
-                        updates["due_at"].replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    pass
-            if "due_at_raw" in updates:
-                update_values["due_at_raw"] = updates["due_at_raw"]
-
-            count = await item_repo.batch_update(pending.matched_ids, user_id, **update_values)
-            clear_pending(token)
-            await callback.message.edit_text(f"✅ Обновлено {count} элементов.")
-            await callback.answer("Готово!")
-
-        elif pending.action == "delete":
-            count = await item_repo.batch_delete(pending.matched_ids, user_id)
-            clear_pending(token)
-            await callback.message.edit_text(f"🗑️ Удалено {count} элементов.")
-            await callback.answer("Удалено!")
-
-        elif pending.action == "delete_project":
-            project_id = pending.filter.get("project_id")
-            deleted = await project_repo.delete(project_id, user_id)
-            clear_pending(token)
-            if deleted:
-                await callback.message.edit_text("🗑️ Проект удалён.")
-                await callback.answer("Проект удалён!")
-            else:
-                await callback.message.edit_text("Не удалось удалить проект.")
-                await callback.answer("Ошибка", show_alert=True)
-
-        elif pending.action == "move_items":
-            source_id = pending.filter.get("project_id")
-            target_id = pending.filter.get("target_project_id")
-            count = await project_repo.move_items(source_id, target_id, user_id)
-            clear_pending(token)
-            await callback.message.edit_text(f"📦 Перенесено {count} элементов.")
-            await callback.answer("Перенесено!")
-
-        else:
-            await callback.answer("Неизвестная операция.", show_alert=True)
 
 
-@callback_router.callback_query(F.data.startswith("batch_cancel:"))
-async def handle_batch_cancel(callback: CallbackQuery) -> None:
-    """Handle batch operation cancellation."""
-    token = callback.data.split(":")[1]
 
-    from src.ai.batch_confirmations import clear_pending
-
-    clear_pending(token)
-    await callback.message.edit_text("Операция отменена.")
-    await callback.answer("Отменено")
