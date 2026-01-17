@@ -130,6 +130,7 @@ class ItemLink(Base):
     item_id: Mapped[int] = mapped_column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
     related_item_id: Mapped[int] = mapped_column(Integer, ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
     link_type: Mapped[Optional[str]] = mapped_column(String(20))
+    reason: Mapped[Optional[str]] = mapped_column(String(200))  # Agent-generated reason for the link
     confidence: Mapped[Optional[float]] = mapped_column(Float)
     confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

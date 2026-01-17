@@ -14,7 +14,8 @@ from src.api.schemas import (
 )
 from src.config import config
 from src.db.database import get_session
-from src.db.repository import ItemRepository
+from src.db.repository import ItemRepository, ItemLinkRepository
+from src.db.search import find_similar
 
 router = APIRouter(prefix="/api/items", tags=["items"])
 
@@ -75,6 +76,54 @@ async def get_item(
             raise HTTPException(status_code=404, detail="Item not found")
 
         return ItemResponse.model_validate(item)
+
+
+@router.get("/{item_id}/related")
+async def get_related_items(
+    item_id: int,
+    user_id: int = Depends(get_user_id)
+):
+    """
+    Get related items for an item.
+
+    Returns:
+        - auto: Semantically similar items (score > 0.7)
+        - linked: Explicitly linked items from agent with reason
+    """
+    async with get_session() as session:
+        item_repo = ItemRepository(session)
+        link_repo = ItemLinkRepository(session)
+
+        # Verify item exists and belongs to user
+        item = await item_repo.get(item_id, user_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Item not found")
+
+        # Get semantically similar items (auto-related)
+        similar_results = await find_similar(
+            session=session,
+            item_id=item_id,
+            user_id=user_id,
+            limit=10,
+            min_similarity=0.7
+        )
+        auto_related = [
+            {
+                "id": r.id,
+                "title": r.title,
+                "type": r.type,
+                "score": round(r.score, 2)
+            }
+            for r in similar_results
+        ]
+
+        # Get explicit links from agent
+        linked = await link_repo.get_item_links(item_id)
+
+        return {
+            "auto": auto_related,
+            "linked": linked
+        }
 
 
 @router.patch("/{item_id}", response_model=ItemResponse)

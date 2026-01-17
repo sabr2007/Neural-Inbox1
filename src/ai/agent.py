@@ -1,0 +1,280 @@
+# neural-inbox1/src/ai/agent.py
+"""Intelligent Agent - orchestrator for message processing."""
+import asyncio
+import json
+import logging
+import time
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import List, Optional, Dict, Any
+
+from openai import AsyncOpenAI
+
+from src.config import config
+from src.db.database import get_session
+from src.db.repository import ItemRepository, ProjectRepository, ItemLinkRepository
+from src.db.search import vector_search
+from src.db.models import Item, ItemLink, ItemStatus
+from src.ai.prompts import AgentContext, build_prompt
+from src.ai.model_selector import ModelSelector
+from src.ai.embeddings import get_embedding, get_embeddings_batch
+from src.ai.linker import create_links_batch
+
+logger = logging.getLogger(__name__)
+
+
+class AgentError(Exception):
+    """Custom exception for agent errors."""
+    pass
+
+
+@dataclass
+class AgentResult:
+    """Result of agent processing."""
+    items_created: List[Item] = field(default_factory=list)
+    links_created: List[ItemLink] = field(default_factory=list)
+    chat_response: Optional[str] = None
+    processing_time: float = 0.0
+
+    @property
+    def is_empty(self) -> bool:
+        """True if no items created and no chat response."""
+        return not self.items_created and not self.chat_response
+
+
+class IntelligentAgent:
+    """
+    Intelligent agent that processes user messages.
+
+    Flow:
+    1. GATHER CONTEXT (parallel) - projects, recent items, similar items
+    2. ANALYZE & EXTRACT (LLM call) - parse text into items
+    3. PERSIST & LINK (parallel) - save items, generate embeddings, create links
+    """
+
+    def __init__(self):
+        self.client = AsyncOpenAI(api_key=config.openai.api_key)
+
+    async def process(
+        self,
+        user_id: int,
+        text: str,
+        source: str
+    ) -> AgentResult:
+        """
+        Process a user message and return structured result.
+
+        Args:
+            user_id: Telegram user ID
+            text: Message text (transcribed if voice)
+            source: Source type (text, voice, photo, etc.)
+
+        Returns:
+            AgentResult with created items, links, and optional chat response
+        """
+        start_time = time.time()
+
+        async with get_session() as session:
+            # 1. GATHER CONTEXT (parallel)
+            context = await self._gather_context(session, user_id, text)
+
+            # 2. ANALYZE & EXTRACT (LLM call)
+            model = ModelSelector.select(text, source)
+            llm_result = await self._analyze_with_llm(text, context, model)
+
+            # Handle chat-only response (no items)
+            if not llm_result.get("items") and llm_result.get("chat_response"):
+                return AgentResult(
+                    chat_response=llm_result["chat_response"],
+                    processing_time=time.time() - start_time
+                )
+
+            # 3. PERSIST & LINK (parallel where possible)
+            items_created = await self._persist_items(
+                session, user_id, text, source, llm_result.get("items", [])
+            )
+
+            # Generate embeddings for new items
+            if items_created:
+                await self._generate_embeddings(session, items_created)
+
+            # Create links from suggestions
+            links_created = []
+            if items_created and llm_result.get("suggested_links"):
+                links_created = await create_links_batch(
+                    session, items_created, llm_result["suggested_links"]
+                )
+
+        return AgentResult(
+            items_created=items_created,
+            links_created=links_created,
+            chat_response=llm_result.get("chat_response"),
+            processing_time=time.time() - start_time
+        )
+
+    async def _gather_context(
+        self,
+        session,
+        user_id: int,
+        text: str
+    ) -> AgentContext:
+        """Gather user context in parallel."""
+        item_repo = ItemRepository(session)
+        project_repo = ProjectRepository(session)
+
+        # Run context queries in parallel
+        projects_task = project_repo.get_for_context(user_id)
+        recent_task = item_repo.get_recent_items(user_id, limit=20)
+        similar_task = self._get_similar_items(session, user_id, text)
+
+        projects, recent_items, similar_items = await asyncio.gather(
+            projects_task, recent_task, similar_task
+        )
+
+        return AgentContext(
+            projects=projects,
+            recent_items=recent_items,
+            similar_items=similar_items
+        )
+
+    async def _get_similar_items(
+        self,
+        session,
+        user_id: int,
+        text: str,
+        limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Get semantically similar items for linking context."""
+        try:
+            results = await vector_search(session, user_id, text, limit=limit)
+            return [
+                {
+                    "id": r.id,
+                    "title": r.title,
+                    "type": r.type,
+                    "score": round(r.score, 2)
+                }
+                for r in results
+                if r.score > 0.5  # Only include reasonably similar items
+            ]
+        except Exception as e:
+            logger.warning(f"Similar items search failed: {e}")
+            return []
+
+    async def _analyze_with_llm(
+        self,
+        text: str,
+        context: AgentContext,
+        model: str
+    ) -> Dict[str, Any]:
+        """Call LLM to analyze text and extract items."""
+        prompt = build_prompt(text, context)
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": text}
+                ],
+                temperature=0.3,
+                max_tokens=2000,
+                response_format={"type": "json_object"}
+            )
+
+            result = json.loads(response.choices[0].message.content)
+
+            # Validate structure
+            if not isinstance(result, dict):
+                raise AgentError("Invalid LLM response format")
+
+            return result
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM response: {e}")
+            raise AgentError(f"Invalid JSON from LLM: {e}")
+
+        except Exception as e:
+            logger.error(f"LLM call failed: {e}")
+            raise AgentError(f"LLM error: {e}")
+
+    async def _persist_items(
+        self,
+        session,
+        user_id: int,
+        original_text: str,
+        source: str,
+        items_data: List[Dict[str, Any]]
+    ) -> List[Item]:
+        """Create items in database."""
+        if not items_data:
+            return []
+
+        item_repo = ItemRepository(session)
+        created_items = []
+
+        for item_data in items_data:
+            try:
+                # Parse due_at if provided
+                due_at = None
+                due_at_raw = item_data.get("due_at_raw")
+                if item_data.get("due_at_iso"):
+                    try:
+                        due_at = datetime.fromisoformat(
+                            item_data["due_at_iso"].replace("Z", "+00:00")
+                        )
+                    except (ValueError, TypeError):
+                        pass
+
+                item = await item_repo.create(
+                    user_id=user_id,
+                    type=item_data.get("type", "note"),
+                    status=ItemStatus.INBOX.value,
+                    title=item_data.get("title", original_text[:100]),
+                    content=item_data.get("content") or original_text,
+                    original_input=original_text,
+                    source=source,
+                    due_at=due_at,
+                    due_at_raw=due_at_raw,
+                    priority=item_data.get("priority"),
+                    tags=item_data.get("tags", []),
+                    project_id=item_data.get("project_id")
+                )
+                created_items.append(item)
+
+            except Exception as e:
+                logger.error(f"Failed to create item: {e}, data: {item_data}")
+                continue
+
+        return created_items
+
+    async def _generate_embeddings(
+        self,
+        session,
+        items: List[Item]
+    ) -> None:
+        """Generate and save embeddings for items."""
+        if not items:
+            return
+
+        # Prepare texts for embedding
+        texts = [
+            f"{item.title or ''} {item.content or item.original_input or ''}"
+            for item in items
+        ]
+
+        try:
+            embeddings = await get_embeddings_batch(texts)
+
+            item_repo = ItemRepository(session)
+            for item, embedding in zip(items, embeddings):
+                if embedding:
+                    await item_repo.update(
+                        item.id,
+                        item.user_id,
+                        embedding=embedding
+                    )
+
+        except Exception as e:
+            logger.error(f"Failed to generate embeddings: {e}")
+            # Non-fatal error, items are still saved

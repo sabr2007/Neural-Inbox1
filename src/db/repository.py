@@ -267,6 +267,28 @@ class ItemRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_recent_items(self, user_id: int, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get recent items for agent context."""
+        stmt = (
+            select(Item)
+            .where(Item.user_id == user_id)
+            .order_by(Item.created_at.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        items = result.scalars().all()
+
+        return [
+            {
+                "id": item.id,
+                "title": item.title,
+                "type": item.type,
+                "tags": item.tags or [],
+                "created_at": item.created_at.isoformat() if item.created_at else None
+            }
+            for item in items
+        ]
+
 
 class ProjectRepository:
     def __init__(self, session: AsyncSession):
@@ -298,6 +320,18 @@ class ProjectRepository:
             select(Project).where(Project.user_id == user_id).order_by(Project.name)
         )
         return list(result.scalars().all())
+
+    async def get_for_context(self, user_id: int) -> List[Dict[str, Any]]:
+        """Get projects in simplified format for agent context."""
+        projects = await self.get_all(user_id)
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "emoji": p.emoji
+            }
+            for p in projects
+        ]
 
     async def update(self, project_id: int, user_id: int, **kwargs) -> Optional[Project]:
         """Update a project."""
@@ -341,13 +375,82 @@ class ItemLinkRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def create(self, item_id: int, related_item_id: int, link_type: str = "related",
-                     confidence: Optional[float] = None, confirmed: bool = False) -> ItemLink:
+    async def create(
+        self,
+        item_id: int,
+        related_item_id: int,
+        link_type: str = "related",
+        reason: Optional[str] = None,
+        confidence: Optional[float] = None,
+        confirmed: bool = False
+    ) -> ItemLink:
+        """Create a link between two items."""
         link = ItemLink(
-            item_id=item_id, related_item_id=related_item_id,
-            link_type=link_type, confidence=confidence, confirmed=confirmed
+            item_id=item_id,
+            related_item_id=related_item_id,
+            link_type=link_type,
+            reason=reason,
+            confidence=confidence,
+            confirmed=confirmed
         )
         self.session.add(link)
         await self.session.flush()
         await self.session.refresh(link)
         return link
+
+    async def create_batch(
+        self,
+        links: List[Dict[str, Any]]
+    ) -> List[ItemLink]:
+        """
+        Create multiple links at once.
+
+        Args:
+            links: List of dicts with keys: item_id, related_item_id, reason, link_type
+
+        Returns:
+            List of created ItemLink objects
+        """
+        created = []
+        for link_data in links:
+            link = ItemLink(
+                item_id=link_data["item_id"],
+                related_item_id=link_data["related_item_id"],
+                link_type=link_data.get("link_type", "related"),
+                reason=link_data.get("reason"),
+                confidence=link_data.get("confidence"),
+                confirmed=False
+            )
+            self.session.add(link)
+            created.append(link)
+
+        await self.session.flush()
+        for link in created:
+            await self.session.refresh(link)
+
+        return created
+
+    async def get_item_links(self, item_id: int) -> List[Dict[str, Any]]:
+        """
+        Get all explicit links for an item (for related items endpoint).
+
+        Returns linked items with their details and link reason.
+        """
+        # Get links where this item is the source
+        stmt = (
+            select(ItemLink, Item)
+            .join(Item, ItemLink.related_item_id == Item.id)
+            .where(ItemLink.item_id == item_id)
+        )
+        result = await self.session.execute(stmt)
+        rows = result.all()
+
+        return [
+            {
+                "id": item.id,
+                "title": item.title,
+                "type": item.type,
+                "reason": link.reason
+            }
+            for link, item in rows
+        ]

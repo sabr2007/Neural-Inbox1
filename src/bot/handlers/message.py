@@ -1,7 +1,6 @@
 """
-Message handler - simplified "black hole" approach.
-All messages get saved, search queries redirect to WebApp.
-AI classification happens in background task.
+Message handler - intelligent agent approach.
+All messages are processed by IntelligentAgent for multi-parsing and smart responses.
 """
 import asyncio
 import logging
@@ -13,19 +12,17 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.enums import ContentType, ChatAction
 
-from src.config import MAX_VOICE_DURATION, MAX_FILE_SIZE, config
-from src.services.extracted_content import ExtractedContent
+from src.config import MAX_VOICE_DURATION, MAX_FILE_SIZE
 from src.services.url_parser import URLParser, extract_urls
 from src.services.whisper_transcriber import WhisperTranscriber
 from src.services.image_analyzer import ImageAnalyzer
 from src.services.pdf_extractor import PDFExtractor
 from src.services.document_extractor import DocumentExtractor
-from src.ai.classifier import ContentClassifier
-from src.ai.embeddings import get_embedding
+from src.ai.agent import IntelligentAgent, AgentError
 from src.db.database import get_session
 from src.db.repository import UserRepository, ItemRepository
 from src.db.models import ItemSource, ItemStatus
-from src.bot.keyboards import delete_item_keyboard, webapp_button, reminder_actions_keyboard
+from src.bot.keyboards import delete_item_keyboard, webapp_button
 
 logger = logging.getLogger(__name__)
 
@@ -61,177 +58,192 @@ async def redirect_to_webapp(message: Message) -> None:
     keyboard = webapp_button()
     if keyboard:
         await message.reply(
-            "Я сохраняю всё, что ты отправляешь 📥\n"
-            "Для поиска и управления открой приложение 👇",
+            "Я сохраняю всё, что ты отправляешь\n"
+            "Для поиска и управления открой приложение",
             reply_markup=keyboard
         )
     else:
         await message.reply(
-            "Я сохраняю всё, что ты отправляешь 📥\n"
+            "Я сохраняю всё, что ты отправляешь\n"
             "Поиск и управление доступны в приложении."
         )
 
 
-async def save_and_classify_background(
+async def process_with_agent(
     message: Message,
     text: str,
-    source: str,
-    **kwargs
+    source: str
 ) -> None:
     """
-    Save item instantly with PROCESSING status, then classify in background.
+    Process message with IntelligentAgent.
 
     Flow:
-    1. Instantly reply "⏳ Сохраняю..."
-    2. Save to DB with status=PROCESSING
-    3. Start background task for AI classification
-    4. Background task updates item and edits message
+    1. Reply "⏳ Обрабатываю..."
+    2. Ensure user exists
+    3. Start background task with agent
+    4. Handle result (edit message accordingly)
     """
     user_id = message.from_user.id
 
     # 1. Instant response
-    status_message = await message.reply("⏳ Сохраняю...")
+    status_message = await message.reply("⏳ Обрабатываю...")
 
+    # 2. Ensure user exists
     async with get_session() as session:
-        # Ensure user exists
         user_repo = UserRepository(session)
         await user_repo.get_or_create(user_id)
 
-        # 2. Save with PROCESSING status
-        item_repo = ItemRepository(session)
-        item = await item_repo.create(
-            user_id=user_id,
-            type="note",  # Default type, will be updated by classifier
-            status=ItemStatus.PROCESSING.value,
-            title=text[:100] if text else "Обработка...",
-            original_input=text,
-            source=source,
-            **kwargs
-        )
-        item_id = item.id
-
-    # 3. Start background classification task
+    # 3. Start background agent task
     asyncio.create_task(
-        _classify_and_update(
+        _process_with_agent(
             user_id=user_id,
-            item_id=item_id,
             text=text,
-            status_message=status_message,
-            message=message
+            source=source,
+            status_message=status_message
         )
     )
 
 
-async def _classify_and_update(
+async def _process_with_agent(
     user_id: int,
-    item_id: int,
     text: str,
-    status_message: Message,
-    message: Message
+    source: str,
+    status_message: Message
 ) -> None:
-    """Background task: classify content with AI and update item."""
-    try:
-        # AI Classification
-        classifier = ContentClassifier()
-        classification = await classifier.classify(text)
+    """Background task: process with IntelligentAgent."""
+    agent = IntelligentAgent()
 
-        # Handle 'chat' type - don't save, just respond
-        if classification.type == "chat":
-            # Delete the temporary item
-            async with get_session() as session:
-                item_repo = ItemRepository(session)
-                await item_repo.delete(item_id, user_id)
-            
-            # Respond to user's greeting/question
-            chat_responses = {
-                "привет": "Привет! Я Neural Inbox твой второй мозг. Просто отправь мне текст, голосовые, фото или документы я всё сохраню и классифицирую!",
-                "как дела": "Отлично, работаю! Готов помочь тебе организовать задачи, заметки и идеи.",
-                "что умеешь": "Я умею:\n Сохранять и классифицировать заметки\n Создавать задачи с дедлайнами\n Фиксировать идеи\n Парсить ссылки\n Распознавать голосовые\n Анализировать фото\n Извлекать текст из PDF",
-            }
-            
-            text_lower = text.lower().strip()
-            response = next((resp for key, resp in chat_responses.items() if key in text_lower), 
-                          "Привет! Я готов сохранять твои заметки, задачи и идеи. Просто отправь мне что-нибудь!")
-            
-            await status_message.edit_text(response)
+    try:
+        result = await asyncio.wait_for(
+            agent.process(user_id, text, source),
+            timeout=10.0
+        )
+
+        # Handle empty result (nothing created, no chat response)
+        if result.is_empty:
+            await status_message.delete()
             return
 
-        # Generate embedding
-        embedding_text = f"{classification.title} {text}"
-        embedding = await get_embedding(embedding_text)
+        # Handle chat-only response
+        if result.chat_response and not result.items_created:
+            await status_message.edit_text(result.chat_response)
+            return
 
-        async with get_session() as session:
-            item_repo = ItemRepository(session)
+        # Handle items created
+        if result.items_created:
+            response = _format_items_response(result.items_created, result.links_created)
 
-            # Update item with classification results
-            await item_repo.update(
-                item_id,
-                user_id,
-                type=classification.type,
-                status=ItemStatus.INBOX.value,
-                title=classification.title,
-                content=text if len(text) > 100 else None,
-                due_at=classification.due_at,
-                due_at_raw=classification.due_at_raw,
-                priority=classification.priority,
-                tags=classification.tags,
-                entities=classification.entities,
-                embedding=embedding
-            )
+            # If single item, show delete button
+            if len(result.items_created) == 1:
+                await status_message.edit_text(
+                    response,
+                    reply_markup=delete_item_keyboard(result.items_created[0].id)
+                )
+            else:
+                await status_message.edit_text(response)
 
-        # Format success response
-        type_emoji = {
-            "task": "✅",
-            "idea": "💡",
-            "note": "📝",
-            "resource": "🔗",
-            "contact": "👤"
-        }
-        emoji = type_emoji.get(classification.type, "📝")
+            # If there's also a chat response, send it separately
+            if result.chat_response:
+                await status_message.answer(result.chat_response)
 
-        # Build response text
-        type_labels = {
-            "task": "Задача",
-            "idea": "Идея",
-            "note": "Заметка",
-            "resource": "Ресурс",
-            "contact": "Контакт"
-        }
-        type_label = type_labels.get(classification.type, "Запись")
+    except asyncio.TimeoutError:
+        logger.error(f"Agent timeout for user {user_id}")
+        await _fallback_save(user_id, text, source, status_message)
 
-        response = f"{emoji} {type_label}: {classification.title}"
+    except AgentError as e:
+        logger.error(f"Agent error for user {user_id}: {e}")
+        await _fallback_save(user_id, text, source, status_message)
 
-        if classification.due_at_raw:
-            due_display = classification.due_at_raw
-            if classification.due_at:
-                parsed_date = classification.due_at.strftime("%d.%m.%Y %H:%M")
+    except Exception as e:
+        logger.error(f"Unexpected error for user {user_id}: {e}")
+        await _fallback_save(user_id, text, source, status_message)
+
+
+def _format_items_response(items, links) -> str:
+    """Format response message for created items."""
+    type_emoji = {
+        "task": "✅",
+        "idea": "💡",
+        "note": "📝",
+        "resource": "🔗",
+        "contact": "👤"
+    }
+    type_labels = {
+        "task": "Задача",
+        "idea": "Идея",
+        "note": "Заметка",
+        "resource": "Ресурс",
+        "contact": "Контакт"
+    }
+
+    if len(items) == 1:
+        item = items[0]
+        emoji = type_emoji.get(item.type, "📝")
+        label = type_labels.get(item.type, "Запись")
+        response = f"{emoji} {label}: {item.title}"
+
+        if item.due_at_raw:
+            due_display = item.due_at_raw
+            if item.due_at:
+                parsed_date = item.due_at.strftime("%d.%m.%Y %H:%M")
                 due_display += f" ({parsed_date})"
             response += f"\n📅 Срок: {due_display}"
 
-        if classification.tags:
-            response += f"\n🏷️ {' '.join(classification.tags)}"
+        if item.tags:
+            response += f"\n🏷️ {' '.join(item.tags)}"
 
-        # Edit the status message with final result
-        await status_message.edit_text(
-            response,
-            reply_markup=delete_item_keyboard(item_id)
-        )
+        if links:
+            response += f"\n🔗 Связано с {len(links)} записями"
 
-    except Exception as e:
-        logger.error(f"Background classification failed: {e}")
-        # Update message to show error but item is saved
-        try:
-            await status_message.edit_text(
-                "📝 Сохранено (не удалось классифицировать)",
-                reply_markup=delete_item_keyboard(item_id)
+        return response
+
+    # Multiple items
+    lines = [f"✨ Создано {len(items)} записей:"]
+    for item in items:
+        emoji = type_emoji.get(item.type, "📝")
+        lines.append(f"  {emoji} {item.title[:50]}")
+
+    if links:
+        lines.append(f"\n🔗 Создано {len(links)} связей")
+
+    return "\n".join(lines)
+
+
+async def _fallback_save(
+    user_id: int,
+    text: str,
+    source: str,
+    status_message: Message
+) -> None:
+    """Fallback: save original text as note in Inbox."""
+    try:
+        async with get_session() as session:
+            item_repo = ItemRepository(session)
+            item = await item_repo.create(
+                user_id=user_id,
+                type="note",
+                status=ItemStatus.INBOX.value,
+                title=text[:100] + "..." if len(text) > 100 else text,
+                content=text,
+                original_input=text,
+                source=source
             )
+
+        await status_message.edit_text(
+            "⚠️ Ошибка обработки, но я сохранил оригинал в Inbox",
+            reply_markup=delete_item_keyboard(item.id)
+        )
+    except Exception as e:
+        logger.error(f"Fallback save failed: {e}")
+        try:
+            await status_message.edit_text("❌ Ошибка сохранения")
         except Exception:
             pass
 
 
 @message_router.message(F.content_type == ContentType.TEXT)
 async def handle_text(message: Message) -> None:
-    """Handle text messages - check for search, otherwise save."""
+    """Handle text messages - check for search, otherwise process with agent."""
     text = message.text.strip()
 
     if not text:
@@ -253,13 +265,13 @@ async def handle_text(message: Message) -> None:
         if not result.is_error and result.text:
             text = f"{text}\n\n--- Содержимое ссылки ---\n{result.text}"
 
-    # 2. Save everything else
-    await save_and_classify_background(message, text, ItemSource.TEXT.value)
+    # 2. Process with agent
+    await process_with_agent(message, text, ItemSource.TEXT.value)
 
 
 @message_router.message(F.content_type == ContentType.VOICE)
 async def handle_voice(message: Message) -> None:
-    """Handle voice messages - transcribe with Whisper, then save."""
+    """Handle voice messages - transcribe with Whisper, then process with agent."""
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     voice = message.voice
@@ -289,8 +301,8 @@ async def handle_voice(message: Message) -> None:
             await message.reply("Не удалось распознать голосовое сообщение.")
             return
 
-        # Save transcribed text
-        await save_and_classify_background(message, text, ItemSource.VOICE.value)
+        # Process with agent
+        await process_with_agent(message, text, ItemSource.VOICE.value)
 
     finally:
         if file_path.exists():
@@ -299,7 +311,7 @@ async def handle_voice(message: Message) -> None:
 
 @message_router.message(F.content_type == ContentType.PHOTO)
 async def handle_photo(message: Message) -> None:
-    """Handle photos - analyze with GPT-4o Vision, then save."""
+    """Handle photos - analyze with GPT-4o Vision, then process with agent."""
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     photo = message.photo[-1]  # Highest resolution
@@ -315,14 +327,8 @@ async def handle_photo(message: Message) -> None:
             await message.reply(result.error)
             return
 
-        # Save with extracted text
-        await save_and_classify_background(
-            message,
-            result.text,
-            ItemSource.PHOTO.value,
-            attachment_file_id=photo.file_id,
-            attachment_type="photo"
-        )
+        # Process with agent
+        await process_with_agent(message, result.text, ItemSource.PHOTO.value)
 
     finally:
         if file_path.exists():
@@ -371,15 +377,8 @@ async def handle_document(message: Message) -> None:
         pages_info = result.metadata.get("page_count", result.metadata.get("estimated_pages", "?"))
         await message.reply(f"{title_info}\nСтраниц: {pages_info}")
 
-        # Save extracted text
-        await save_and_classify_background(
-            message,
-            result.text,
-            source,
-            attachment_file_id=doc.file_id,
-            attachment_type="document",
-            attachment_filename=file_name
-        )
+        # Process with agent
+        await process_with_agent(message, result.text, source)
 
     finally:
         if file_path.exists():
@@ -388,23 +387,12 @@ async def handle_document(message: Message) -> None:
 
 @message_router.message(F.forward_from | F.forward_from_chat)
 async def handle_forward(message: Message) -> None:
-    """Handle forwarded messages - save with origin context."""
+    """Handle forwarded messages - process with agent."""
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
     text = message.text or message.caption or ""
-    origin = None
-
-    if message.forward_from:
-        origin = message.forward_from.full_name
-    elif message.forward_from_chat:
-        origin = message.forward_from_chat.title
 
     if text:
-        await save_and_classify_background(
-            message,
-            text,
-            ItemSource.FORWARD.value,
-            origin_user_name=origin
-        )
+        await process_with_agent(message, text, ItemSource.FORWARD.value)
     else:
         await message.reply("Переслано, но не удалось извлечь текст.")
