@@ -7,8 +7,23 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Dict, Any
+from zoneinfo import ZoneInfo
 
 from openai import AsyncOpenAI
+
+# Default timezone until user settings are implemented
+DEFAULT_TIMEZONE = "Asia/Almaty"
+
+# Day of week names in Russian
+DAYS_OF_WEEK_RU = {
+    "Monday": "понедельник",
+    "Tuesday": "вторник",
+    "Wednesday": "среда",
+    "Thursday": "четверг",
+    "Friday": "пятница",
+    "Saturday": "суббота",
+    "Sunday": "воскресенье"
+}
 
 from src.config import config
 from src.db.database import get_session
@@ -179,10 +194,18 @@ class IntelligentAgent:
         recent_items = await item_repo.get_recent_items(user_id, limit=20)
         similar_items = await self._get_similar_items(session, user_id, text)
 
+        # Get current datetime with timezone (use user's timezone when settings are ready)
+        tz = ZoneInfo(DEFAULT_TIMEZONE)
+        now = datetime.now(tz)
+        day_of_week_en = now.strftime("%A")
+        day_of_week_ru = DAYS_OF_WEEK_RU.get(day_of_week_en, day_of_week_en)
+        current_datetime = f"{now.strftime('%Y-%m-%dT%H:%M:%S')} ({day_of_week_ru})"
+
         return AgentContext(
             projects=projects,
             recent_items=recent_items,
-            similar_items=similar_items
+            similar_items=similar_items,
+            current_datetime=current_datetime
         )
 
     async def _get_similar_items(

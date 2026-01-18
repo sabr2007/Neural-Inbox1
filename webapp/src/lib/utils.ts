@@ -6,31 +6,34 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Format date relative to now (Russian)
+ * Format date with time (Russian) - shows exact date and time
  */
 export function formatRelativeDate(dateStr: string): string {
   const date = new Date(dateStr)
   const now = new Date()
-  const diffMs = date.getTime() - now.getTime()
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
-  if (diffDays < -1) {
-    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  // Check if same day
+  const isToday = date.toDateString() === now.toDateString()
+  const tomorrow = new Date(now)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const isTomorrow = date.toDateString() === tomorrow.toDateString()
+
+  const timeStr = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+
+  if (isToday) {
+    return `Сегодня, ${timeStr}`
   }
-  if (diffDays === -1) {
-    return 'Вчера'
-  }
-  if (diffDays === 0) {
-    return 'Сегодня'
-  }
-  if (diffDays === 1) {
-    return 'Завтра'
-  }
-  if (diffDays < 7) {
-    return date.toLocaleDateString('ru-RU', { weekday: 'long' })
+  if (isTomorrow) {
+    return `Завтра, ${timeStr}`
   }
 
-  return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  // Show full date with time
+  return date.toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 /**

@@ -5,7 +5,7 @@ import {
   X, Calendar, Tag, Folder, Trash2, Check, MoreVertical,
   Paperclip, Clock, Send, FileText, Image
 } from 'lucide-react'
-import { cn, formatRelativeDate, formatTime, getTypeEmoji, getTypeLabel, haptic } from '@/lib/utils'
+import { cn, formatRelativeDate, getTypeEmoji, getTypeLabel, haptic } from '@/lib/utils'
 import { Item, completeItem, deleteItem, sendToChat } from '@/api/client'
 
 interface ItemDetailProps {
@@ -152,11 +152,7 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
               {item.due_at && (
                 <div className="flex items-center gap-3 text-tg-text">
                   <Calendar size={18} className="text-tg-hint" />
-                  <span>
-                    {formatRelativeDate(item.due_at)}
-                    {' '}
-                    <span className="text-tg-hint">{formatTime(item.due_at)}</span>
-                  </span>
+                  <span>{formatRelativeDate(item.due_at)}</span>
                 </div>
               )}
 

@@ -192,12 +192,13 @@ def _format_items_response(items, links) -> str:
         label = type_labels.get(item.type, "Запись")
         response = f"{emoji} {label}: {item.title}"
 
-        if item.due_at_raw:
-            due_display = item.due_at_raw
-            if item.due_at:
-                parsed_date = item.due_at.strftime("%d.%m.%Y %H:%M")
-                due_display += f" ({parsed_date})"
+        if item.due_at:
+            # Show parsed date/time as primary display
+            due_display = item.due_at.strftime("%d.%m.%Y %H:%M")
             response += f"\n📅 Срок: {due_display}"
+        elif item.due_at_raw:
+            # Fallback to raw if parsing failed
+            response += f"\n📅 Срок: {item.due_at_raw}"
 
         if item.tags:
             response += f"\n🏷️ {' '.join(item.tags)}"
