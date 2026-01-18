@@ -298,16 +298,23 @@ class IntelligentAgent:
                     logger.warning(f"Invalid item_data type: {type(item_data)}, value: {str(item_data)[:100]}")
                     continue
 
-                # Parse due_at if provided
+                # Parse due_at if provided (LLM returns time in user's timezone)
                 due_at = None
                 due_at_raw = item_data.get("due_at_raw")
                 if item_data.get("due_at_iso"):
                     try:
-                        due_at = datetime.fromisoformat(
+                        # Parse the ISO string
+                        parsed = datetime.fromisoformat(
                             item_data["due_at_iso"].replace("Z", "+00:00")
                         )
-                    except (ValueError, TypeError):
-                        pass
+                        # If naive (no timezone), add user's timezone (Asia/Almaty)
+                        if parsed.tzinfo is None:
+                            tz = ZoneInfo(DEFAULT_TIMEZONE)
+                            due_at = parsed.replace(tzinfo=tz)
+                        else:
+                            due_at = parsed
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Failed to parse due_at_iso: {item_data.get('due_at_iso')}, error: {e}")
 
                 # Prepare attachment fields from metadata (inherited from source file)
                 attachment_kwargs = {}
