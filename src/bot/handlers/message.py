@@ -8,10 +8,14 @@ import re
 import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
+from zoneinfo import ZoneInfo
 
 from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.enums import ContentType, ChatAction
+
+# Default timezone for displaying dates to users
+DEFAULT_TIMEZONE = "Asia/Almaty"
 
 from src.config import MAX_VOICE_DURATION, MAX_FILE_SIZE
 from src.services.url_parser import URLParser, extract_urls
@@ -193,8 +197,10 @@ def _format_items_response(items, links) -> str:
         response = f"{emoji} {label}: {item.title}"
 
         if item.due_at:
-            # Show parsed date/time as primary display
-            due_display = item.due_at.strftime("%d.%m.%Y %H:%M")
+            # Convert to user's timezone for display (due_at is stored in UTC)
+            tz = ZoneInfo(DEFAULT_TIMEZONE)
+            due_local = item.due_at.astimezone(tz)
+            due_display = due_local.strftime("%d.%m.%Y %H:%M")
             response += f"\n📅 Срок: {due_display}"
         elif item.due_at_raw:
             # Fallback to raw if parsing failed
