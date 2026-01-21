@@ -98,6 +98,19 @@ async def init_db() -> None:
             END $$;
         """))
 
+        # Add recurrence column for recurring tasks
+        await conn.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'items' AND column_name = 'recurrence'
+                ) THEN
+                    ALTER TABLE items ADD COLUMN recurrence JSONB DEFAULT NULL;
+                END IF;
+            END $$;
+        """))
+
 
 async def close_db() -> None:
     """Close database connections."""
