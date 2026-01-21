@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import Item, User, ItemStatus
 from src.db.database import get_session
+from src.bot.keyboards import reminder_actions_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -134,9 +135,15 @@ class ReminderScheduler:
             if item.due_at_raw:
                 message += f" ({item.due_at_raw})"
 
+            # Add interactive buttons for tasks
+            keyboard = None
+            if item.type == "task":
+                keyboard = reminder_actions_keyboard(item.id)
+
             await self.bot.send_message(
                 chat_id=item.user_id,
-                text=message
+                text=message,
+                reply_markup=keyboard
             )
             logger.info(f"Reminder sent: item_id={item.id}, user_id={item.user_id}")
 

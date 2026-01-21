@@ -4,6 +4,7 @@ Simplified for new "black hole" architecture - no clarification needed.
 """
 import logging
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
@@ -95,7 +96,7 @@ async def handle_snooze(callback: CallbackQuery) -> None:
     duration = parts[2]
     user_id = callback.from_user.id
 
-    now = datetime.utcnow()
+    now = datetime.now(ZoneInfo("UTC"))
     remind_at = None
     duration_text = ""
 
@@ -106,16 +107,20 @@ async def handle_snooze(callback: CallbackQuery) -> None:
         remind_at = now + timedelta(hours=1)
         duration_text = "через 1 час"
     elif duration == "1d":
-        remind_at = now.replace(hour=9, minute=0, second=0) + timedelta(days=1)
+        # Tomorrow at 9:00 in user's local time (approximated as UTC+5 for Almaty)
+        tomorrow = (now + timedelta(days=1)).replace(hour=4, minute=0, second=0, microsecond=0)
+        remind_at = tomorrow
         duration_text = "завтра в 9:00"
     elif duration == "3h":
         remind_at = now + timedelta(hours=3)
         duration_text = "через 3 часа"
     elif duration == "tomorrow":
-        remind_at = now.replace(hour=9, minute=0, second=0) + timedelta(days=1)
+        tomorrow = (now + timedelta(days=1)).replace(hour=4, minute=0, second=0, microsecond=0)
+        remind_at = tomorrow
         duration_text = "завтра в 9:00"
     elif duration == "week":
-        remind_at = now.replace(hour=9, minute=0, second=0) + timedelta(weeks=1)
+        next_week = (now + timedelta(weeks=1)).replace(hour=4, minute=0, second=0, microsecond=0)
+        remind_at = next_week
         duration_text = "через неделю"
 
     async with get_session() as session:
