@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Drawer } from 'vaul'
 import {
@@ -7,6 +7,63 @@ import {
 } from 'lucide-react'
 import { cn, formatRelativeDate, getTypeEmoji, getTypeLabel, haptic } from '@/lib/utils'
 import { Item, completeItem, deleteItem, sendToChat } from '@/api/client'
+
+// Regex to match URLs in text
+const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g
+
+/**
+ * Renders text with clickable links.
+ * Converts plain URLs to <a> tags that open in new tab.
+ */
+function TextWithLinks({ text }: { text: string }) {
+  const parts = useMemo(() => {
+    const result: (string | { url: string; key: number })[] = []
+    let lastIndex = 0
+    let match: RegExpExecArray | null
+    let keyCounter = 0
+
+    // Reset regex state
+    URL_REGEX.lastIndex = 0
+
+    while ((match = URL_REGEX.exec(text)) !== null) {
+      // Add text before the URL
+      if (match.index > lastIndex) {
+        result.push(text.slice(lastIndex, match.index))
+      }
+      // Add the URL as an object
+      result.push({ url: match[0], key: keyCounter++ })
+      lastIndex = match.index + match[0].length
+    }
+
+    // Add remaining text after last URL
+    if (lastIndex < text.length) {
+      result.push(text.slice(lastIndex))
+    }
+
+    return result
+  }, [text])
+
+  return (
+    <>
+      {parts.map((part, index) =>
+        typeof part === 'string' ? (
+          <span key={index}>{part}</span>
+        ) : (
+          <a
+            key={part.key}
+            href={part.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline break-all"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {part.url}
+          </a>
+        )
+      )}
+    </>
+  )
+}
 
 interface ItemDetailProps {
   item: Item
@@ -219,7 +276,7 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
                   <span>Исходное сообщение</span>
                 </div>
                 <div className="p-3 bg-tg-secondary-bg rounded-lg text-tg-text text-sm whitespace-pre-wrap">
-                  {item.content || item.original_input}
+                  <TextWithLinks text={item.content || item.original_input || ''} />
                 </div>
               </div>
             )}

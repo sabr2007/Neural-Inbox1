@@ -309,13 +309,23 @@ async def handle_text(message: Message) -> None:
     # Show typing indicator
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
-    # Detect and parse URLs (enrich content)
+    # Detect and parse URLs (enrich content with up to 3 links)
     urls = extract_urls(text)
     if urls:
         url_parser = URLParser()
-        result = await url_parser.parse(urls[0])
-        if not result.is_error and result.text:
-            text = f"{text}\n\n--- Содержимое ссылки ---\n{result.text}"
+        enrichments = []
+
+        # Process up to 3 URLs
+        for url in urls[:3]:
+            try:
+                result = await url_parser.parse(url)
+                if not result.is_error and result.text:
+                    enrichments.append(f"[{url}]\n{result.text}")
+            except Exception as e:
+                logger.warning(f"Failed to parse URL {url}: {e}")
+
+        if enrichments:
+            text = f"{text}\n\n--- Содержимое ссылок ---\n" + "\n\n".join(enrichments)
 
     # 2. Process with agent
     await process_with_agent(message, text, ItemSource.TEXT.value)
