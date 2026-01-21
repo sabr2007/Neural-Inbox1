@@ -101,6 +101,10 @@ class Item(Base):
     tags: Mapped[list] = mapped_column(JSONB, default=list)
     entities: Mapped[dict] = mapped_column(JSONB, default=dict)
 
+    # Recurrence settings for recurring tasks
+    # Structure: {"type": "daily"|"weekly"|"monthly", "interval": 1, "days": [0-6], "end_date": "ISO"|null}
+    recurrence: Mapped[Optional[dict]] = mapped_column(JSONB, default=None)
+
     embedding: Mapped[Optional[list]] = mapped_column(Vector(1536))
 
     origin_user_name: Mapped[Optional[str]] = mapped_column(String(255))

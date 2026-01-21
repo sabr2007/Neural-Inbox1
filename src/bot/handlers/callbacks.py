@@ -29,18 +29,26 @@ async def handle_cancel(callback: CallbackQuery) -> None:
 
 @callback_router.callback_query(F.data.startswith("complete:"))
 async def handle_complete(callback: CallbackQuery) -> None:
-    """Mark item as completed."""
+    """Mark item as completed. Creates next recurring instance if applicable."""
     item_id = int(callback.data.split(":")[1])
     user_id = callback.from_user.id
 
     async with get_session() as session:
         item_repo = ItemRepository(session)
-        item = await item_repo.complete(item_id, user_id)
+        completed_item, next_item = await item_repo.complete(item_id, user_id)
 
-        if item:
-            await callback.message.edit_text(
-                f"✔️ Выполнено: {item.title}"
-            )
+        if completed_item:
+            message = f"✔️ Выполнено: {completed_item.title}"
+
+            # Notify about next recurring instance
+            if next_item:
+                next_due = next_item.due_at
+                if next_due:
+                    # Format date nicely
+                    due_str = next_due.strftime("%d.%m.%Y %H:%M")
+                    message += f"\n\n🔁 Следующий повтор: {due_str}"
+
+            await callback.message.edit_text(message)
         else:
             await callback.answer("Элемент не найден", show_alert=True)
             return

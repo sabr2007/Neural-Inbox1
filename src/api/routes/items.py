@@ -165,20 +165,32 @@ async def delete_item(
         return SuccessResponse(message="Item deleted")
 
 
-@router.patch("/{item_id}/complete", response_model=ItemResponse)
+@router.patch("/{item_id}/complete")
 async def complete_item(
     item_id: int,
     user_id: int = Depends(get_user_id)
 ):
-    """Mark item as completed."""
+    """
+    Mark item as completed.
+    If item has recurrence rule, creates the next recurring instance.
+
+    Returns:
+        completed: The completed item
+        next_recurring: The next recurring instance (if applicable)
+    """
     async with get_session() as session:
         item_repo = ItemRepository(session)
-        item = await item_repo.complete(item_id, user_id)
+        completed_item, next_item = await item_repo.complete(item_id, user_id)
 
-        if not item:
+        if not completed_item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        return ItemResponse.model_validate(item)
+        result = {
+            "completed": ItemResponse.model_validate(completed_item),
+            "next_recurring": ItemResponse.model_validate(next_item) if next_item else None
+        }
+
+        return result
 
 
 @router.patch("/{item_id}/move", response_model=ItemResponse)

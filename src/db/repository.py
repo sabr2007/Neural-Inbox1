@@ -1,13 +1,95 @@
 # neural-inbox1/src/db/repository.py
 # CRUD
 """Database repository - CRUD operations."""
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any, Tuple
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update, delete, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.models import User, Item, Project, ItemLink, ItemStatus, ItemType
+
+
+def calculate_next_due_date(current_due: datetime, recurrence: dict) -> Optional[datetime]:
+    """
+    Calculate the next due date based on recurrence rule.
+
+    Args:
+        current_due: Current due date
+        recurrence: Recurrence rule dict with keys: type, interval, days, end_date
+
+    Returns:
+        Next due date or None if recurrence has ended
+    """
+    if not recurrence or not current_due:
+        return None
+
+    rec_type = recurrence.get("type", "daily")
+    interval = recurrence.get("interval", 1)
+    end_date_str = recurrence.get("end_date")
+
+    # Check end date
+    if end_date_str:
+        try:
+            end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+            if current_due >= end_date:
+                return None
+        except (ValueError, TypeError):
+            pass
+
+    next_due = current_due
+
+    if rec_type == "daily":
+        next_due = current_due + timedelta(days=interval)
+
+    elif rec_type == "weekly":
+        days = recurrence.get("days", [])
+        if days:
+            # Find next day from allowed days
+            current_weekday = current_due.weekday()
+            sorted_days = sorted(days)
+
+            # Find next day in this week
+            next_day = None
+            for day in sorted_days:
+                if day > current_weekday:
+                    next_day = day
+                    break
+
+            if next_day is not None:
+                # Next day in current week
+                delta = next_day - current_weekday
+            else:
+                # First day of next week cycle
+                delta = (7 * interval) - current_weekday + sorted_days[0]
+
+            next_due = current_due + timedelta(days=delta)
+        else:
+            # No specific days, just add weeks
+            next_due = current_due + timedelta(weeks=interval)
+
+    elif rec_type == "monthly":
+        # Add months (approximate with 30 days)
+        month = current_due.month + interval
+        year = current_due.year + (month - 1) // 12
+        month = ((month - 1) % 12) + 1
+
+        # Handle day overflow (e.g., Jan 31 -> Feb 28)
+        day = min(current_due.day, 28)  # Safe day for all months
+
+        next_due = current_due.replace(year=year, month=month, day=day)
+
+    # Final check against end date
+    if end_date_str:
+        try:
+            end_date = datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+            if next_due > end_date:
+                return None
+        except (ValueError, TypeError):
+            pass
+
+    return next_due
 
 
 class UserRepository:
@@ -82,12 +164,47 @@ class ItemRepository:
             await self.session.refresh(item)
         return item
 
-    async def complete(self, item_id: int, user_id: int) -> Optional[Item]:
-        return await self.update(
-            item_id, user_id,
-            status=ItemStatus.DONE.value,
-            completed_at=datetime.utcnow()
-        )
+    async def complete(self, item_id: int, user_id: int) -> Tuple[Optional[Item], Optional[Item]]:
+        """
+        Complete an item. If it has recurrence, create the next instance.
+
+        Returns:
+            Tuple of (completed_item, next_recurring_item or None)
+        """
+        item = await self.get(item_id, user_id)
+        if not item:
+            return None, None
+
+        # Mark as completed
+        item.status = ItemStatus.DONE.value
+        item.completed_at = datetime.now(ZoneInfo("UTC"))
+        await self.session.flush()
+        await self.session.refresh(item)
+
+        # Create next recurring instance if applicable
+        next_item = None
+        if item.recurrence and item.due_at:
+            next_due = calculate_next_due_date(item.due_at, item.recurrence)
+            if next_due:
+                next_item = Item(
+                    user_id=user_id,
+                    type=item.type,
+                    status=ItemStatus.INBOX.value,
+                    title=item.title,
+                    content=item.content,
+                    due_at=next_due,
+                    due_at_raw=item.due_at_raw,
+                    remind_at=next_due,  # Remind at due time
+                    priority=item.priority,
+                    project_id=item.project_id,
+                    tags=item.tags or [],
+                    recurrence=item.recurrence,  # Inherit recurrence rule
+                )
+                self.session.add(next_item)
+                await self.session.flush()
+                await self.session.refresh(next_item)
+
+        return item, next_item
 
     async def delete(self, item_id: int, user_id: int) -> bool:
         result = await self.session.execute(

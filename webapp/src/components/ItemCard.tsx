@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Paperclip, Loader2, Trash2 } from 'lucide-react'
+import { Check, Paperclip, Loader2, Trash2, Repeat } from 'lucide-react'
 import { cn, formatRelativeDate, getTypeEmoji, haptic } from '@/lib/utils'
 import { Item, completeItem, deleteItem } from '@/api/client'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -72,6 +72,7 @@ export default function ItemCard({ item, onClick }: ItemCardProps) {
   const isProcessing = item.status === 'processing'
   const isCompleted = item.status === 'done'
   const hasAttachment = !!item.attachment_file_id
+  const isRecurring = !!item.recurrence
 
   return (
     <div
@@ -119,6 +120,9 @@ export default function ItemCard({ item, onClick }: ItemCardProps) {
             >
               {item.title}
             </h3>
+            {isRecurring && (
+              <Repeat size={14} className="flex-shrink-0 text-primary" title="Повторяющаяся" />
+            )}
             {hasAttachment && (
               <Paperclip size={14} className="flex-shrink-0 text-tg-hint" />
             )}

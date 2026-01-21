@@ -3,10 +3,179 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Drawer } from 'vaul'
 import {
   X, Calendar, Tag, Folder, Trash2, Check, MoreVertical,
-  Paperclip, Clock, Send, FileText, Image
+  Paperclip, Clock, Send, FileText, Image, Repeat, ChevronDown
 } from 'lucide-react'
+import { RecurrenceRule, updateItem } from '@/api/client'
 import { cn, formatRelativeDate, getTypeEmoji, getTypeLabel, haptic } from '@/lib/utils'
 import { Item, completeItem, deleteItem, sendToChat } from '@/api/client'
+
+// Day names for weekly recurrence
+const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+
+interface RecurrenceEditorProps {
+  itemId: number
+  currentRecurrence?: RecurrenceRule
+  onSave: () => void
+  onCancel: () => void
+}
+
+/**
+ * Recurrence editor component for setting up recurring tasks
+ */
+function RecurrenceEditor({ itemId, currentRecurrence, onSave, onCancel }: RecurrenceEditorProps) {
+  const queryClient = useQueryClient()
+
+  const [type, setType] = useState<'daily' | 'weekly' | 'monthly'>(
+    currentRecurrence?.type || 'daily'
+  )
+  const [interval, setInterval] = useState(currentRecurrence?.interval || 1)
+  const [days, setDays] = useState<number[]>(currentRecurrence?.days || [0, 1, 2, 3, 4])
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const recurrence: RecurrenceRule = {
+        type,
+        interval,
+        ...(type === 'weekly' && { days }),
+      }
+      return updateItem(itemId, { recurrence })
+    },
+    onSuccess: () => {
+      haptic('success')
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      onSave()
+    },
+    onError: (error) => {
+      console.error('Failed to save recurrence:', error)
+      haptic('error')
+    },
+  })
+
+  const removeMutation = useMutation({
+    mutationFn: () => updateItem(itemId, { recurrence: null } as any),
+    onSuccess: () => {
+      haptic('success')
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      onSave()
+    },
+    onError: (error) => {
+      console.error('Failed to remove recurrence:', error)
+      haptic('error')
+    },
+  })
+
+  const toggleDay = (dayIndex: number) => {
+    setDays(prev =>
+      prev.includes(dayIndex)
+        ? prev.filter(d => d !== dayIndex)
+        : [...prev, dayIndex].sort()
+    )
+  }
+
+  return (
+    <div className="p-4 bg-tg-secondary-bg rounded-xl space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-medium text-tg-text">Настройка повтора</h3>
+        {currentRecurrence && (
+          <button
+            onClick={() => removeMutation.mutate()}
+            disabled={removeMutation.isPending}
+            className="text-sm text-red-500 hover:text-red-600"
+          >
+            Удалить
+          </button>
+        )}
+      </div>
+
+      {/* Type selector */}
+      <div className="space-y-2">
+        <label className="text-sm text-tg-hint">Частота</label>
+        <div className="grid grid-cols-3 gap-2">
+          {(['daily', 'weekly', 'monthly'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setType(t)}
+              className={cn(
+                'py-2 px-3 rounded-lg text-sm font-medium transition-colors',
+                type === t
+                  ? 'bg-primary text-white'
+                  : 'bg-tg-bg text-tg-text hover:bg-tg-bg/80'
+              )}
+            >
+              {t === 'daily' && 'Ежедневно'}
+              {t === 'weekly' && 'Еженедельно'}
+              {t === 'monthly' && 'Ежемесячно'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Interval selector */}
+      <div className="space-y-2">
+        <label className="text-sm text-tg-hint">
+          Каждые
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            max={30}
+            value={interval}
+            onChange={(e) => setInterval(Math.max(1, parseInt(e.target.value) || 1))}
+            className="w-20 py-2 px-3 rounded-lg bg-tg-bg text-tg-text text-center border-none outline-none focus:ring-2 focus:ring-primary"
+          />
+          <span className="text-tg-text">
+            {type === 'daily' && (interval === 1 ? 'день' : 'дней')}
+            {type === 'weekly' && (interval === 1 ? 'неделю' : 'недель')}
+            {type === 'monthly' && (interval === 1 ? 'месяц' : 'месяцев')}
+          </span>
+        </div>
+      </div>
+
+      {/* Day selector for weekly */}
+      {type === 'weekly' && (
+        <div className="space-y-2">
+          <label className="text-sm text-tg-hint">Дни недели</label>
+          <div className="flex gap-1">
+            {DAY_NAMES.map((name, index) => (
+              <button
+                key={index}
+                onClick={() => toggleDay(index)}
+                className={cn(
+                  'flex-1 py-2 rounded-lg text-sm font-medium transition-colors',
+                  days.includes(index)
+                    ? 'bg-primary text-white'
+                    : 'bg-tg-bg text-tg-hint hover:text-tg-text'
+                )}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 pt-2">
+        <button
+          onClick={onCancel}
+          className="flex-1 py-2 rounded-lg bg-tg-bg text-tg-text font-medium hover:bg-tg-bg/80 transition-colors"
+        >
+          Отмена
+        </button>
+        <button
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending || (type === 'weekly' && days.length === 0)}
+          className="flex-1 py-2 rounded-lg bg-primary text-white font-medium hover:bg-primary-600 transition-colors disabled:opacity-50"
+        >
+          {saveMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+        </button>
+      </div>
+    </div>
+  )
+}
 
 // Regex to match URLs in text
 const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g
@@ -65,6 +234,34 @@ function TextWithLinks({ text }: { text: string }) {
   )
 }
 
+/**
+ * Format recurrence rule to human-readable string
+ */
+function formatRecurrence(recurrence: RecurrenceRule): string {
+  const { type, interval } = recurrence
+
+  if (type === 'daily') {
+    return interval === 1 ? 'Каждый день' : `Каждые ${interval} дн.`
+  }
+
+  if (type === 'weekly') {
+    const days = recurrence.days || []
+    const dayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+    const selectedDays = days.map(d => dayNames[d]).join(', ')
+
+    if (interval === 1) {
+      return days.length > 0 ? `Каждую нед. (${selectedDays})` : 'Каждую неделю'
+    }
+    return `Каждые ${interval} нед.`
+  }
+
+  if (type === 'monthly') {
+    return interval === 1 ? 'Каждый месяц' : `Каждые ${interval} мес.`
+  }
+
+  return 'Повторяется'
+}
+
 interface ItemDetailProps {
   item: Item
   open: boolean
@@ -74,6 +271,7 @@ interface ItemDetailProps {
 export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
   const queryClient = useQueryClient()
   const [showMenu, setShowMenu] = useState(false)
+  const [showRecurrenceEditor, setShowRecurrenceEditor] = useState(false)
 
   const completeMutation = useMutation({
     mutationFn: () => completeItem(item.id),
@@ -213,6 +411,45 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
                 </div>
               )}
 
+              {/* Recurrence section - editable for tasks */}
+              {item.type === 'task' && item.status !== 'done' && (
+                <div className="space-y-3">
+                  {showRecurrenceEditor ? (
+                    <RecurrenceEditor
+                      itemId={item.id}
+                      currentRecurrence={item.recurrence}
+                      onSave={() => setShowRecurrenceEditor(false)}
+                      onCancel={() => setShowRecurrenceEditor(false)}
+                    />
+                  ) : item.recurrence ? (
+                    <button
+                      onClick={() => setShowRecurrenceEditor(true)}
+                      className="flex items-center gap-3 text-tg-text hover:bg-tg-secondary-bg rounded-lg p-2 -m-2 transition-colors w-full"
+                    >
+                      <Repeat size={18} className="text-primary" />
+                      <span>{formatRecurrence(item.recurrence)}</span>
+                      <ChevronDown size={16} className="text-tg-hint ml-auto" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setShowRecurrenceEditor(true)}
+                      className="flex items-center gap-3 text-tg-hint hover:text-tg-text hover:bg-tg-secondary-bg rounded-lg p-2 -m-2 transition-colors w-full"
+                    >
+                      <Repeat size={18} />
+                      <span>Добавить повтор</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Show recurrence for non-task items or completed tasks (read-only) */}
+              {(item.type !== 'task' || item.status === 'done') && item.recurrence && (
+                <div className="flex items-center gap-3 text-tg-text">
+                  <Repeat size={18} className="text-primary" />
+                  <span>{formatRecurrence(item.recurrence)}</span>
+                </div>
+              )}
+
               {item.tags && item.tags.length > 0 && (
                 <div className="flex items-center gap-3 text-tg-text">
                   <Tag size={18} className="text-tg-hint" />
@@ -269,17 +506,17 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
 
             {/* Original content - only for non-document/photo items */}
             {(item.content || item.original_input) &&
-             !(item.attachment_type === 'document' || item.attachment_type === 'photo') && (
-              <div className="border-t border-tg-secondary-bg pt-4">
-                <div className="flex items-center gap-2 mb-2 text-tg-hint text-sm">
-                  <Paperclip size={14} />
-                  <span>Исходное сообщение</span>
+              !(item.attachment_type === 'document' || item.attachment_type === 'photo') && (
+                <div className="border-t border-tg-secondary-bg pt-4">
+                  <div className="flex items-center gap-2 mb-2 text-tg-hint text-sm">
+                    <Paperclip size={14} />
+                    <span>Исходное сообщение</span>
+                  </div>
+                  <div className="p-3 bg-tg-secondary-bg rounded-lg text-tg-text text-sm whitespace-pre-wrap">
+                    <TextWithLinks text={item.content || item.original_input || ''} />
+                  </div>
                 </div>
-                <div className="p-3 bg-tg-secondary-bg rounded-lg text-tg-text text-sm whitespace-pre-wrap">
-                  <TextWithLinks text={item.content || item.original_input || ''} />
-                </div>
-              </div>
-            )}
+              )}
           </div>
 
           {/* Actions */}

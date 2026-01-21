@@ -9,6 +9,14 @@ from pydantic import BaseModel, Field
 
 # ============== Item Schemas ==============
 
+class RecurrenceRule(BaseModel):
+    """Recurrence rule for recurring tasks."""
+    type: str  # "daily", "weekly", "monthly"
+    interval: int = 1  # Every N days/weeks/months
+    days: Optional[List[int]] = None  # For weekly: [0-6] where 0=Monday
+    end_date: Optional[str] = None  # ISO date string or null
+
+
 class ItemResponse(BaseModel):
     """Item response DTO."""
     id: int
@@ -22,6 +30,7 @@ class ItemResponse(BaseModel):
     tags: List[str] = Field(default_factory=list)
     project_id: Optional[int] = None
     priority: Optional[str] = None
+    recurrence: Optional[dict] = None  # Recurrence rule
     attachment_file_id: Optional[str] = None
     attachment_type: Optional[str] = None
     attachment_filename: Optional[str] = None
@@ -45,6 +54,7 @@ class ItemUpdate(BaseModel):
     tags: Optional[List[str]] = None
     project_id: Optional[int] = None
     priority: Optional[str] = None
+    recurrence: Optional[dict] = None  # Recurrence rule or null to remove
 
 
 class ItemMoveRequest(BaseModel):

@@ -39,6 +39,13 @@ async function fetchApi<T>(
 
 // ============== Types ==============
 
+export interface RecurrenceRule {
+  type: 'daily' | 'weekly' | 'monthly'
+  interval: number  // Every N days/weeks/months
+  days?: number[]   // For weekly: [0-6] where 0=Monday
+  end_date?: string // ISO date string or null
+}
+
 export interface Item {
   id: number
   type: 'task' | 'idea' | 'note' | 'resource' | 'contact'
@@ -51,6 +58,7 @@ export interface Item {
   tags: string[]
   project_id?: number
   priority?: 'high' | 'medium' | 'low'
+  recurrence?: RecurrenceRule  // Recurrence rule for recurring tasks
   attachment_file_id?: string
   attachment_type?: string
   attachment_filename?: string
@@ -58,6 +66,11 @@ export interface Item {
   created_at: string
   updated_at: string
   completed_at?: string
+}
+
+export interface CompleteItemResponse {
+  completed: Item
+  next_recurring: Item | null
 }
 
 export interface ItemsListResponse {
@@ -144,8 +157,8 @@ export async function deleteItem(id: number): Promise<void> {
   await fetchApi(`/items/${id}`, { method: 'DELETE' })
 }
 
-export async function completeItem(id: number): Promise<Item> {
-  return fetchApi<Item>(`/items/${id}/complete`, { method: 'PATCH' })
+export async function completeItem(id: number): Promise<CompleteItemResponse> {
+  return fetchApi<CompleteItemResponse>(`/items/${id}/complete`, { method: 'PATCH' })
 }
 
 export async function moveItem(id: number, projectId: number | null): Promise<Item> {
