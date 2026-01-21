@@ -33,18 +33,41 @@ logger = logging.getLogger(__name__)
 
 message_router = Router()
 
-# Search query patterns (triggers redirect to WebApp)
-SEARCH_PATTERNS = [
+# Patterns that trigger redirect to WebApp (search and management commands)
+# Bot only accepts data input (notes via text, voice, photo, files)
+# Any management/search actions redirect to WebApp
+WEBAPP_REDIRECT_PATTERNS = [
+    # Search patterns
     r'\bнайди\b', r'\bнайти\b', r'\bпокажи\b', r'\bпоиск\b',
     r'\bчто у меня\b', r'\bкакие\b', r'\bсписок\b', r'\bгде\b',
-    r'\bпоказать\b', r'\bвсе мои\b', r'\bмои задачи\b', r'\bмои заметки\b'
+    r'\bпоказать\b', r'\bвсе мои\b', r'\bмои задачи\b', r'\bмои заметки\b',
+
+    # Project management
+    r'\bсоздай проект\b', r'\bновый проект\b', r'\bудали проект\b',
+    r'\bпереименуй проект\b', r'\bизмени проект\b',
+
+    # Item management (edit, delete, move)
+    r'\bудали\b', r'\bудалить\b', r'\bизмени\b', r'\bизменить\b',
+    r'\bредактируй\b', r'\bредактировать\b', r'\bотредактируй\b',
+    r'\bперенеси\b', r'\bперенести\b', r'\bпереместить\b', r'\bпереместi\b',
+    r'\bотметь\b', r'\bотметить\b', r'\bзавершить\b', r'\bзаверши\b',
+
+    # Send/export requests
+    r'\bотправь\b', r'\bотправить\b', r'\bпришли\b', r'\bприслать\b',
+    r'\bэкспорт\b', r'\bэкспортируй\b', r'\bскачать\b', r'\bскачай\b',
+
+    # View/open requests
+    r'\bоткрой\b', r'\bоткрыть\b', r'\bпросмотр\b', r'\bпросмотреть\b',
+
+    # Status/settings
+    r'\bстатус\b', r'\bнастройки\b', r'\bнастроить\b', r'\bстатистика\b',
 ]
-SEARCH_REGEX = re.compile('|'.join(SEARCH_PATTERNS), re.IGNORECASE)
+WEBAPP_REDIRECT_REGEX = re.compile('|'.join(WEBAPP_REDIRECT_PATTERNS), re.IGNORECASE)
 
 
-def is_search_query(text: str) -> bool:
-    """Check if text is a search query that should redirect to WebApp."""
-    return bool(SEARCH_REGEX.search(text))
+def should_redirect_to_webapp(text: str) -> bool:
+    """Check if text is a management/search command that should redirect to WebApp."""
+    return bool(WEBAPP_REDIRECT_REGEX.search(text))
 
 
 async def download_temp_file(bot: Bot, file_id: str, suffix: str = "") -> Path:
@@ -278,8 +301,8 @@ async def handle_text(message: Message) -> None:
     if not text:
         return
 
-    # 1. Check for search queries first
-    if is_search_query(text):
+    # 1. Check for management/search commands - redirect to WebApp
+    if should_redirect_to_webapp(text):
         await redirect_to_webapp(message)
         return
 

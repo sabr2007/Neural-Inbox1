@@ -111,12 +111,29 @@ class IntelligentAgent:
         """
         start_time = time.time()
 
+        # === AGENT INPUT LOG ===
+        logger.debug("=" * 60)
+        logger.debug(f"[AGENT] Processing started for user {user_id}")
+        logger.debug(f"[AGENT] Source: {source}")
+        logger.debug(f"[AGENT] Input text ({len(text)} chars):\n{text[:500]}{'...' if len(text) > 500 else ''}")
+        if metadata:
+            logger.debug(f"[AGENT] Metadata: {metadata}")
+        logger.debug("=" * 60)
+
         async with get_session() as session:
             # 1. GATHER CONTEXT (parallel)
             context = await self._gather_context(session, user_id, text)
 
+            # === CONTEXT LOG ===
+            logger.debug(f"[AGENT] Context gathered:")
+            logger.debug(f"[AGENT]   - Projects: {len(context.projects)}")
+            logger.debug(f"[AGENT]   - Recent items: {len(context.recent_items)}")
+            logger.debug(f"[AGENT]   - Similar items: {len(context.similar_items)}")
+            logger.debug(f"[AGENT]   - Current datetime: {context.current_datetime}")
+
             # 2. ANALYZE & EXTRACT (LLM call)
             model = ModelSelector.select(text, source)
+            logger.debug(f"[AGENT] Selected model: {model}")
             llm_result = await self._analyze_with_llm(text, context, model)
 
             # Validate and extract items
@@ -125,8 +142,18 @@ class IntelligentAgent:
                 logger.error(f"Invalid items format from LLM: {type(items_data)}")
                 raise AgentError(f"Invalid items format: expected list, got {type(items_data).__name__}")
 
+            # === LLM RESULT LOG ===
+            logger.debug(f"[AGENT] LLM result parsed:")
+            logger.debug(f"[AGENT]   - Items count: {len(items_data)}")
+            logger.debug(f"[AGENT]   - Has chat_response: {bool(llm_result.get('chat_response'))}")
+            logger.debug(f"[AGENT]   - Suggested links: {len(llm_result.get('suggested_links', []))}")
+            if items_data:
+                for i, item in enumerate(items_data):
+                    logger.debug(f"[AGENT]   - Item {i+1}: type={item.get('type')}, title={item.get('title', '')[:50]}")
+
             # Handle chat-only response (no items)
             if not items_data and llm_result.get("chat_response"):
+                logger.debug(f"[AGENT] Chat-only response, no items to create")
                 return AgentResult(
                     chat_response=llm_result["chat_response"],
                     processing_time=time.time() - start_time
@@ -172,11 +199,25 @@ class IntelligentAgent:
                 for link in db_links
             ]
 
+        processing_time = time.time() - start_time
+
+        # === AGENT OUTPUT LOG ===
+        logger.debug("=" * 60)
+        logger.debug(f"[AGENT] Processing completed in {processing_time:.2f}s")
+        logger.debug(f"[AGENT] Results:")
+        logger.debug(f"[AGENT]   - Items created: {len(items_created)}")
+        logger.debug(f"[AGENT]   - Links created: {len(links_created)}")
+        logger.debug(f"[AGENT]   - Chat response: {llm_result.get('chat_response', '')[:100] if llm_result.get('chat_response') else 'None'}")
+        if items_created:
+            for item in items_created:
+                logger.debug(f"[AGENT]   - Saved: id={item.id}, type={item.type}, title={item.title[:40]}")
+        logger.debug("=" * 60)
+
         return AgentResult(
             items_created=items_created,
             links_created=links_created,
             chat_response=llm_result.get("chat_response"),
-            processing_time=time.time() - start_time
+            processing_time=processing_time
         )
 
     async def _gather_context(
@@ -254,16 +295,16 @@ class IntelligentAgent:
             )
 
             raw_content = response.choices[0].message.content
-            logger.info(f"LLM raw response (first 200 chars): {raw_content[:200]}")
+
+            # === LLM RAW RESPONSE LOG ===
+            logger.debug(f"[AGENT] LLM raw response ({len(raw_content)} chars):")
+            logger.debug(f"[AGENT] {raw_content}")
 
             result = json.loads(raw_content)
 
             # Validate structure
             if not isinstance(result, dict):
                 raise AgentError("Invalid LLM response format")
-
-            # Log keys for debugging
-            logger.info(f"LLM result keys: {list(result.keys())}")
 
             return result
 
