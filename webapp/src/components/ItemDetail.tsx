@@ -1,11 +1,11 @@
 import { useState, useMemo } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Drawer } from 'vaul'
 import {
   X, Calendar, Tag, Folder, Trash2, Check, MoreVertical,
-  Paperclip, Clock, Send, FileText, Image, Repeat, ChevronDown
+  Paperclip, Clock, Send, FileText, Image, Repeat, ChevronDown, FolderInput
 } from 'lucide-react'
-import { RecurrenceRule, updateItem } from '@/api/client'
+import { RecurrenceRule, updateItem, fetchProjects, moveItem, Project } from '@/api/client'
 import { cn, formatRelativeDate, getTypeEmoji, getTypeLabel, haptic } from '@/lib/utils'
 import { Item, completeItem, deleteItem, sendToChat } from '@/api/client'
 
@@ -177,6 +177,109 @@ function RecurrenceEditor({ itemId, currentRecurrence, onSave, onCancel }: Recur
   )
 }
 
+/**
+ * Project selector bottom sheet
+ */
+interface ProjectSelectorProps {
+  open: boolean
+  onClose: () => void
+  currentProjectId?: number
+  onSelect: (projectId: number | null) => void
+}
+
+function ProjectSelector({ open, onClose, currentProjectId, onSelect }: ProjectSelectorProps) {
+  const { data: projectsData, isLoading } = useQuery({
+    queryKey: ['projects'],
+    queryFn: fetchProjects,
+    enabled: open,
+  })
+
+  const projects = projectsData?.projects || []
+
+  const handleSelect = (projectId: number | null) => {
+    onSelect(projectId)
+    onClose()
+  }
+
+  return (
+    <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
+      <Drawer.Portal>
+        <Drawer.Overlay className="fixed inset-0 bg-black/50 z-[60]" />
+        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] bg-tg-bg rounded-t-2xl max-h-[70vh] flex flex-col">
+          {/* Handle */}
+          <div className="flex justify-center py-3">
+            <div className="w-10 h-1 bg-tg-hint/30 rounded-full" />
+          </div>
+
+          {/* Header */}
+          <div className="px-4 pb-3 border-b border-tg-secondary-bg">
+            <h3 className="text-lg font-semibold text-tg-text">Выберите проект</h3>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 overflow-auto">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="py-2">
+                {/* No project option */}
+                <button
+                  onClick={() => handleSelect(null)}
+                  className={cn(
+                    'w-full px-4 py-3 flex items-center gap-3 text-left',
+                    'hover:bg-tg-secondary-bg transition-colors',
+                    currentProjectId === undefined && 'bg-tg-secondary-bg'
+                  )}
+                >
+                  <div className="w-8 h-8 rounded-lg bg-tg-hint/20 flex items-center justify-center">
+                    <X size={18} className="text-tg-hint" />
+                  </div>
+                  <span className="text-tg-text">Без проекта</span>
+                  {!currentProjectId && (
+                    <Check size={18} className="ml-auto text-primary" />
+                  )}
+                </button>
+
+                {/* Projects list */}
+                {projects.map((project) => (
+                  <button
+                    key={project.id}
+                    onClick={() => handleSelect(project.id)}
+                    className={cn(
+                      'w-full px-4 py-3 flex items-center gap-3 text-left',
+                      'hover:bg-tg-secondary-bg transition-colors',
+                      currentProjectId === project.id && 'bg-tg-secondary-bg'
+                    )}
+                  >
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-white"
+                      style={{ backgroundColor: project.color || '#8B5CF6' }}
+                    >
+                      {project.emoji || <Folder size={16} />}
+                    </div>
+                    <span className="text-tg-text flex-1">{project.name}</span>
+                    {currentProjectId === project.id && (
+                      <Check size={18} className="text-primary" />
+                    )}
+                  </button>
+                ))}
+
+                {projects.length === 0 && (
+                  <div className="px-4 py-8 text-center text-tg-hint">
+                    Нет проектов. Создайте первый проект в разделе Projects.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </Drawer.Content>
+      </Drawer.Portal>
+    </Drawer.Root>
+  )
+}
+
 // Regex to match URLs in text
 const URL_REGEX = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g
 
@@ -272,6 +375,7 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
   const queryClient = useQueryClient()
   const [showMenu, setShowMenu] = useState(false)
   const [showRecurrenceEditor, setShowRecurrenceEditor] = useState(false)
+  const [showProjectSelector, setShowProjectSelector] = useState(false)
 
   const completeMutation = useMutation({
     mutationFn: () => completeItem(item.id),
@@ -314,6 +418,20 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
     },
     onError: (error) => {
       console.error('Failed to send to chat:', error)
+      haptic('error')
+    },
+  })
+
+  const moveMutation = useMutation({
+    mutationFn: (projectId: number | null) => moveItem(item.id, projectId),
+    onSuccess: () => {
+      haptic('success')
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
+    },
+    onError: (error) => {
+      console.error('Failed to move item:', error)
       haptic('error')
     },
   })
@@ -379,6 +497,16 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
                   <span>Выполнено</span>
                 </button>
               )}
+              <button
+                onClick={() => {
+                  setShowMenu(false)
+                  setShowProjectSelector(true)
+                }}
+                className="flex items-center gap-2 px-4 py-2 w-full text-left hover:bg-tg-secondary-bg"
+              >
+                <FolderInput size={18} />
+                <span>В проект</span>
+              </button>
               <button
                 onClick={() => {
                   setShowMenu(false)
@@ -533,6 +661,14 @@ export default function ItemDetail({ item, open, onClose }: ItemDetailProps) {
           )}
         </Drawer.Content>
       </Drawer.Portal>
+
+      {/* Project selector bottom sheet */}
+      <ProjectSelector
+        open={showProjectSelector}
+        onClose={() => setShowProjectSelector(false)}
+        currentProjectId={item.project_id}
+        onSelect={(projectId) => moveMutation.mutate(projectId)}
+      />
     </Drawer.Root>
   )
 }
