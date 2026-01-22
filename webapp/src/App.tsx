@@ -5,6 +5,7 @@ import Tasks from './pages/Tasks'
 import Calendar from './pages/Calendar'
 import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
+import Settings from './pages/Settings'
 import SearchDrawer from './components/SearchDrawer'
 
 // Telegram WebApp type declaration
@@ -62,7 +63,10 @@ declare global {
 }
 
 type Tab = 'projects' | 'inbox' | 'search' | 'tasks' | 'calendar'
-type View = { type: 'tab'; tab: Tab } | { type: 'project'; projectId: number }
+type View =
+  | { type: 'tab'; tab: Tab }
+  | { type: 'project'; projectId: number }
+  | { type: 'settings' }
 
 export default function App() {
   const [view, setView] = useState<View>({ type: 'tab', tab: 'inbox' })
@@ -112,6 +116,14 @@ export default function App() {
     setView({ type: 'tab', tab: 'projects' })
   }
 
+  const handleSettingsClick = () => {
+    setView({ type: 'settings' })
+  }
+
+  const handleBackFromSettings = () => {
+    setView({ type: 'tab', tab: 'inbox' })
+  }
+
   // Show skeleton while initializing
   if (!isReady) {
     return (
@@ -123,8 +135,13 @@ export default function App() {
 
   const currentTab = view.type === 'tab' ? view.tab : 'projects'
 
+  // Settings page has its own layout
+  if (view.type === 'settings') {
+    return <Settings onBack={handleBackFromSettings} />
+  }
+
   return (
-    <Layout currentTab={currentTab} onTabChange={handleTabChange}>
+    <Layout currentTab={currentTab} onTabChange={handleTabChange} onSettingsClick={handleSettingsClick}>
       {view.type === 'project' ? (
         <ProjectDetail projectId={view.projectId} onBack={handleBackFromProject} />
       ) : (

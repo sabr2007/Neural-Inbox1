@@ -220,3 +220,46 @@ export async function searchItems(
 
   return fetchApi<SearchResult>(`/search?${searchParams.toString()}`)
 }
+
+// ============== User Settings API ==============
+
+export interface NotificationSettings {
+  task_reminders: boolean
+  daily_digest: boolean
+  weekly_review: boolean
+  dnd_enabled: boolean
+  dnd_start: string  // HH:MM format
+  dnd_end: string    // HH:MM format
+}
+
+export interface UserSettings {
+  notifications: NotificationSettings
+}
+
+export interface UserSettingsResponse {
+  timezone: string
+  language: string
+  settings: UserSettings
+  onboarding_done: boolean
+}
+
+export interface UserSettingsUpdate {
+  timezone?: string
+  language?: string
+  notifications?: NotificationSettings
+}
+
+export async function fetchUserSettings(): Promise<UserSettingsResponse> {
+  return fetchApi<UserSettingsResponse>('/user/settings')
+}
+
+export async function updateUserSettings(data: UserSettingsUpdate): Promise<UserSettingsResponse> {
+  return fetchApi<UserSettingsResponse>('/user/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function completeOnboarding(): Promise<void> {
+  await fetchApi('/user/onboarding/complete', { method: 'POST' })
+}

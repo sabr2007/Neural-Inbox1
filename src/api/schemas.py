@@ -154,3 +154,38 @@ class ErrorResponse(BaseModel):
     """Error response."""
     error: str
     detail: Optional[str] = None
+
+
+# ============== User Settings Schemas ==============
+
+class NotificationSettings(BaseModel):
+    """Notification settings for user."""
+    task_reminders: bool = True
+    daily_digest: bool = True
+    weekly_review: bool = False
+    dnd_enabled: bool = False
+    dnd_start: str = "22:00"  # HH:MM format
+    dnd_end: str = "08:00"    # HH:MM format
+
+
+class UserSettings(BaseModel):
+    """Full user settings object stored in JSONB."""
+    notifications: NotificationSettings = Field(default_factory=NotificationSettings)
+
+
+class UserSettingsResponse(BaseModel):
+    """User settings response with timezone."""
+    timezone: str
+    language: str
+    settings: UserSettings
+    onboarding_done: bool
+
+    class Config:
+        from_attributes = True
+
+
+class UserSettingsUpdate(BaseModel):
+    """User settings update DTO (partial update)."""
+    timezone: Optional[str] = None
+    language: Optional[str] = None
+    notifications: Optional[NotificationSettings] = None

@@ -106,8 +106,46 @@ class ReminderScheduler:
         result = await session.execute(query)
         return list(result.all())
 
+    def _is_in_dnd(self, user: User) -> bool:
+        """Check if user is currently in Do Not Disturb mode."""
+        settings = user.settings or {}
+        notifications = settings.get("notifications", {})
+
+        if not notifications.get("dnd_enabled", False):
+            return False
+
+        tz = ZoneInfo(user.timezone or "Asia/Almaty")
+        now_local = datetime.now(tz)
+        current_time = now_local.strftime("%H:%M")
+
+        dnd_start = notifications.get("dnd_start", "22:00")
+        dnd_end = notifications.get("dnd_end", "08:00")
+
+        # Handle overnight DND (e.g., 22:00 - 08:00)
+        if dnd_start > dnd_end:
+            # DND spans midnight
+            return current_time >= dnd_start or current_time < dnd_end
+        else:
+            # DND within same day
+            return dnd_start <= current_time < dnd_end
+
+    def _are_reminders_enabled(self, user: User) -> bool:
+        """Check if task reminders are enabled for user."""
+        settings = user.settings or {}
+        notifications = settings.get("notifications", {})
+        return notifications.get("task_reminders", True)
+
     async def _send_reminder(self, item: Item, user: User) -> None:
         """Отправить напоминание пользователю."""
+        # Check DND and reminder settings
+        if self._is_in_dnd(user):
+            logger.debug(f"User {user.user_id} is in DND mode, skipping reminder for item {item.id}")
+            return
+
+        if not self._are_reminders_enabled(user):
+            logger.debug(f"Reminders disabled for user {user.user_id}, skipping item {item.id}")
+            return
+
         try:
             tz = ZoneInfo(user.timezone or "Asia/Almaty")
             now_local = datetime.now(tz)

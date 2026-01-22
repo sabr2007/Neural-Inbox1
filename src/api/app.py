@@ -4,7 +4,7 @@ FastAPI application for Neural Inbox Mini App API.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import items, tasks, projects, search
+from src.api.routes import items, tasks, projects, search, user
 
 # Create FastAPI app
 app = FastAPI(
@@ -27,6 +27,7 @@ app.include_router(items.router)
 app.include_router(tasks.router)
 app.include_router(projects.router)
 app.include_router(search.router)
+app.include_router(user.router)
 
 
 @app.get("/api/health")
