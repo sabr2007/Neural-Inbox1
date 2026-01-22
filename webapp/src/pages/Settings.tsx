@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Globe, Bell, Moon, ChevronDown, ChevronRight,
@@ -7,17 +7,39 @@ import {
 import {
   fetchUserSettings,
   updateUserSettings,
-  UserSettingsResponse,
   NotificationSettings
 } from '../api/client'
 
-// Common timezones grouped by region
+// Часовые пояса по регионам
 const TIMEZONES = [
-  { group: 'Europe', zones: ['Europe/Moscow', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Kiev', 'Europe/Minsk'] },
-  { group: 'Asia', zones: ['Asia/Almaty', 'Asia/Tashkent', 'Asia/Dubai', 'Asia/Singapore', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Kolkata'] },
-  { group: 'America', zones: ['America/New_York', 'America/Los_Angeles', 'America/Chicago', 'America/Denver'] },
-  { group: 'Pacific', zones: ['Pacific/Auckland', 'Australia/Sydney'] },
+  { group: 'Европа', zones: ['Europe/Moscow', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Kiev', 'Europe/Minsk'] },
+  { group: 'Азия', zones: ['Asia/Almaty', 'Asia/Tashkent', 'Asia/Dubai', 'Asia/Singapore', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Kolkata'] },
+  { group: 'Америка', zones: ['America/New_York', 'America/Los_Angeles', 'America/Chicago', 'America/Denver'] },
+  { group: 'Океания', zones: ['Pacific/Auckland', 'Australia/Sydney'] },
 ]
+
+// Названия городов на русском
+const TIMEZONE_NAMES: Record<string, string> = {
+  'Europe/Moscow': 'Москва',
+  'Europe/London': 'Лондон',
+  'Europe/Paris': 'Париж',
+  'Europe/Berlin': 'Берлин',
+  'Europe/Kiev': 'Киев',
+  'Europe/Minsk': 'Минск',
+  'Asia/Almaty': 'Алматы',
+  'Asia/Tashkent': 'Ташкент',
+  'Asia/Dubai': 'Дубай',
+  'Asia/Singapore': 'Сингапур',
+  'Asia/Tokyo': 'Токио',
+  'Asia/Shanghai': 'Шанхай',
+  'Asia/Kolkata': 'Калькутта',
+  'America/New_York': 'Нью-Йорк',
+  'America/Los_Angeles': 'Лос-Анджелес',
+  'America/Chicago': 'Чикаго',
+  'America/Denver': 'Денвер',
+  'Pacific/Auckland': 'Окленд',
+  'Australia/Sydney': 'Сидней',
+}
 
 interface SettingsProps {
   onBack: () => void
@@ -40,7 +62,7 @@ export default function Settings({ onBack }: SettingsProps) {
     },
   })
 
-  // Auto-detect browser timezone
+  // Автоопределение часового пояса браузера
   const detectedTimezone = useMemo(() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -67,7 +89,7 @@ export default function Settings({ onBack }: SettingsProps) {
     mutation.mutate({ notifications: newNotifications })
   }
 
-  // Get timezone offset string
+  // Получить смещение часового пояса
   const getTimezoneOffset = (tz: string) => {
     try {
       const now = new Date()
@@ -81,6 +103,11 @@ export default function Settings({ onBack }: SettingsProps) {
     } catch {
       return ''
     }
+  }
+
+  // Получить название часового пояса
+  const getTimezoneName = (tz: string) => {
+    return TIMEZONE_NAMES[tz] || tz.split('/')[1]?.replace('_', ' ') || tz
   }
 
   if (isLoading) {
@@ -102,22 +129,22 @@ export default function Settings({ onBack }: SettingsProps) {
 
   return (
     <div className="pb-4">
-      {/* Header */}
+      {/* Заголовок */}
       <div className="sticky top-0 z-10 bg-tg-bg border-b border-tg-secondary-bg">
         <div className="px-4 py-3 flex items-center gap-3">
           <button onClick={onBack} className="p-1 -ml-1 text-tg-hint hover:text-tg-text">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="text-lg font-semibold text-tg-text">Settings</h1>
+          <h1 className="text-lg font-semibold text-tg-text">Настройки</h1>
         </div>
       </div>
 
       <div className="px-4 space-y-6 mt-4">
-        {/* Timezone Section */}
+        {/* Часовой пояс */}
         <section>
           <h2 className="text-sm font-medium text-tg-hint uppercase tracking-wide mb-3 flex items-center gap-2">
             <Globe className="w-4 h-4" />
-            Timezone
+            Часовой пояс
           </h2>
 
           <div className="bg-tg-secondary-bg rounded-xl overflow-hidden">
@@ -126,7 +153,7 @@ export default function Settings({ onBack }: SettingsProps) {
               className="w-full px-4 py-3 flex items-center justify-between text-left"
             >
               <div>
-                <div className="text-tg-text font-medium">{settings?.timezone || 'Asia/Almaty'}</div>
+                <div className="text-tg-text font-medium">{getTimezoneName(settings?.timezone || 'Asia/Almaty')}</div>
                 <div className="text-sm text-tg-hint">{getTimezoneOffset(settings?.timezone || 'Asia/Almaty')}</div>
               </div>
               <ChevronDown className={`w-5 h-5 text-tg-hint transition-transform ${timezoneOpen ? 'rotate-180' : ''}`} />
@@ -134,16 +161,16 @@ export default function Settings({ onBack }: SettingsProps) {
 
             {timezoneOpen && (
               <div className="border-t border-tg-bg">
-                {/* Auto-detect button */}
+                {/* Кнопка автоопределения */}
                 <button
                   onClick={handleAutoDetect}
                   className="w-full px-4 py-3 text-left text-primary hover:bg-tg-bg flex items-center justify-between"
                 >
-                  <span>Auto-detect ({detectedTimezone})</span>
+                  <span>Определить автоматически ({getTimezoneName(detectedTimezone)})</span>
                   <span className="text-xs text-tg-hint">{getTimezoneOffset(detectedTimezone)}</span>
                 </button>
 
-                {/* Timezone groups */}
+                {/* Группы часовых поясов */}
                 <div className="max-h-64 overflow-y-auto">
                   {TIMEZONES.map(group => (
                     <div key={group.group}>
@@ -158,7 +185,7 @@ export default function Settings({ onBack }: SettingsProps) {
                             settings?.timezone === tz ? 'text-primary' : 'text-tg-text'
                           }`}
                         >
-                          <span>{tz.split('/')[1]?.replace('_', ' ') || tz}</span>
+                          <span>{getTimezoneName(tz)}</span>
                           <span className="text-xs text-tg-hint">{getTimezoneOffset(tz)}</span>
                         </button>
                       ))}
@@ -170,17 +197,17 @@ export default function Settings({ onBack }: SettingsProps) {
           </div>
         </section>
 
-        {/* Notifications Section */}
+        {/* Уведомления */}
         <section>
           <h2 className="text-sm font-medium text-tg-hint uppercase tracking-wide mb-3 flex items-center gap-2">
             <Bell className="w-4 h-4" />
-            Notifications
+            Уведомления
           </h2>
 
           <div className="bg-tg-secondary-bg rounded-xl overflow-hidden divide-y divide-tg-bg">
-            {/* Task reminders */}
+            {/* Напоминания о задачах */}
             <label className="flex items-center justify-between px-4 py-3 cursor-pointer">
-              <span className="text-tg-text">Task reminders</span>
+              <span className="text-tg-text">Напоминания о задачах</span>
               <input
                 type="checkbox"
                 checked={notifications.task_reminders}
@@ -189,9 +216,9 @@ export default function Settings({ onBack }: SettingsProps) {
               />
             </label>
 
-            {/* Daily digest */}
+            {/* Ежедневный дайджест */}
             <label className="flex items-center justify-between px-4 py-3 cursor-pointer">
-              <span className="text-tg-text">Daily digest</span>
+              <span className="text-tg-text">Ежедневный дайджест</span>
               <input
                 type="checkbox"
                 checked={notifications.daily_digest}
@@ -200,9 +227,9 @@ export default function Settings({ onBack }: SettingsProps) {
               />
             </label>
 
-            {/* Weekly review */}
+            {/* Еженедельный обзор */}
             <label className="flex items-center justify-between px-4 py-3 cursor-pointer">
-              <span className="text-tg-text">Weekly review</span>
+              <span className="text-tg-text">Еженедельный обзор</span>
               <input
                 type="checkbox"
                 checked={notifications.weekly_review}
@@ -213,17 +240,17 @@ export default function Settings({ onBack }: SettingsProps) {
           </div>
         </section>
 
-        {/* Do Not Disturb Section */}
+        {/* Не беспокоить */}
         <section>
           <h2 className="text-sm font-medium text-tg-hint uppercase tracking-wide mb-3 flex items-center gap-2">
             <Moon className="w-4 h-4" />
-            Do Not Disturb
+            Не беспокоить
           </h2>
 
           <div className="bg-tg-secondary-bg rounded-xl overflow-hidden divide-y divide-tg-bg">
-            {/* DND toggle */}
+            {/* Переключатель */}
             <label className="flex items-center justify-between px-4 py-3 cursor-pointer">
-              <span className="text-tg-text">Enable quiet hours</span>
+              <span className="text-tg-text">Включить тихие часы</span>
               <input
                 type="checkbox"
                 checked={notifications.dnd_enabled}
@@ -232,11 +259,11 @@ export default function Settings({ onBack }: SettingsProps) {
               />
             </label>
 
-            {/* Time range */}
+            {/* Диапазон времени */}
             {notifications.dnd_enabled && (
               <div className="px-4 py-3 flex items-center gap-4">
                 <div className="flex-1">
-                  <label className="text-sm text-tg-hint">From</label>
+                  <label className="text-sm text-tg-hint">С</label>
                   <input
                     type="time"
                     value={notifications.dnd_start}
@@ -245,7 +272,7 @@ export default function Settings({ onBack }: SettingsProps) {
                   />
                 </div>
                 <div className="flex-1">
-                  <label className="text-sm text-tg-hint">To</label>
+                  <label className="text-sm text-tg-hint">До</label>
                   <input
                     type="time"
                     value={notifications.dnd_end}
@@ -258,79 +285,79 @@ export default function Settings({ onBack }: SettingsProps) {
           </div>
         </section>
 
-        {/* Help Section */}
+        {/* Справка */}
         <section>
           <h2 className="text-sm font-medium text-tg-hint uppercase tracking-wide mb-3 flex items-center gap-2">
             <MessageSquare className="w-4 h-4" />
-            How to use
+            Как пользоваться
           </h2>
 
           <div className="bg-tg-secondary-bg rounded-xl overflow-hidden divide-y divide-tg-bg">
-            {/* Types of records */}
+            {/* Типы записей */}
             <HelpItem
               icon={<FileText className="w-5 h-5" />}
-              title="Types of records"
+              title="Типы записей"
               isOpen={helpSection === 'types'}
               onClick={() => setHelpSection(helpSection === 'types' ? null : 'types')}
             >
               <div className="space-y-2 text-sm text-tg-hint">
-                <p><strong className="text-tg-text">Task</strong> - actionable items with optional due dates and reminders</p>
-                <p><strong className="text-tg-text">Idea</strong> - thoughts and concepts for later</p>
-                <p><strong className="text-tg-text">Note</strong> - general information and notes</p>
-                <p><strong className="text-tg-text">Resource</strong> - links, files, and references</p>
-                <p><strong className="text-tg-text">Contact</strong> - people and their details</p>
+                <p><strong className="text-tg-text">Задача</strong> — действия с датами и напоминаниями</p>
+                <p><strong className="text-tg-text">Идея</strong> — мысли и концепции на будущее</p>
+                <p><strong className="text-tg-text">Заметка</strong> — общая информация</p>
+                <p><strong className="text-tg-text">Ресурс</strong> — ссылки, файлы и материалы</p>
+                <p><strong className="text-tg-text">Контакт</strong> — люди и их данные</p>
               </div>
             </HelpItem>
 
-            {/* Voice messages */}
+            {/* Голосовые сообщения */}
             <HelpItem
               icon={<Mic className="w-5 h-5" />}
-              title="Voice messages"
+              title="Голосовые сообщения"
               isOpen={helpSection === 'voice'}
               onClick={() => setHelpSection(helpSection === 'voice' ? null : 'voice')}
             >
               <div className="text-sm text-tg-hint">
-                <p>Send voice messages to the bot and they will be automatically transcribed and processed.</p>
-                <p className="mt-2">The AI will extract tasks, ideas, and other information from your speech.</p>
+                <p>Отправляйте голосовые сообщения боту — они автоматически расшифруются и обработаются.</p>
+                <p className="mt-2">ИИ извлечёт задачи, идеи и другую информацию из вашей речи.</p>
               </div>
             </HelpItem>
 
-            {/* Smart search */}
+            {/* Умный поиск */}
             <HelpItem
               icon={<Search className="w-5 h-5" />}
-              title="Smart search"
+              title="Умный поиск"
               isOpen={helpSection === 'search'}
               onClick={() => setHelpSection(helpSection === 'search' ? null : 'search')}
             >
               <div className="text-sm text-tg-hint">
-                <p>Search uses semantic understanding - it finds related items even if exact words don't match.</p>
-                <p className="mt-2">Try searching for concepts like "meetings this week" or "project ideas".</p>
+                <p>Поиск использует семантическое понимание — находит связанные записи, даже если слова не совпадают.</p>
+                <p className="mt-2">Попробуйте искать по смыслу: «встречи на этой неделе» или «идеи для проекта».</p>
               </div>
             </HelpItem>
 
-            {/* Recurring tasks */}
+            {/* Повторяющиеся задачи */}
             <HelpItem
               icon={<RefreshCw className="w-5 h-5" />}
-              title="Recurring tasks"
+              title="Повторяющиеся задачи"
               isOpen={helpSection === 'recurring'}
               onClick={() => setHelpSection(helpSection === 'recurring' ? null : 'recurring')}
             >
               <div className="text-sm text-tg-hint">
-                <p>Tasks can repeat daily, weekly, or monthly. When you complete a recurring task, the next instance is automatically created.</p>
-                <p className="mt-2">Set recurrence when creating or editing a task.</p>
+                <p>Задачи могут повторяться ежедневно, еженедельно или ежемесячно. При завершении автоматически создаётся следующая.</p>
+                <p className="mt-2">Настройте повтор при создании или редактировании задачи.</p>
               </div>
             </HelpItem>
 
-            {/* Links and documents */}
+            {/* Ссылки и документы */}
             <HelpItem
               icon={<Link2 className="w-5 h-5" />}
-              title="Links and documents"
+              title="Ссылки и документы"
               isOpen={helpSection === 'links'}
               onClick={() => setHelpSection(helpSection === 'links' ? null : 'links')}
             >
               <div className="text-sm text-tg-hint">
-                <p>Send links and they will be automatically fetched and summarized.</p>
-                <p className="mt-2">PDFs and images are processed with AI to extract text and key information.</p>
+                <p>Отправляйте ссылки — они автоматически загрузятся и будут кратко пересказаны.</p>
+                <p className="mt-2">PDF и изображения обрабатываются ИИ для извлечения текста и ключевой информации.</p>
               </div>
             </HelpItem>
           </div>
@@ -340,7 +367,7 @@ export default function Settings({ onBack }: SettingsProps) {
   )
 }
 
-// Help accordion item component
+// Компонент раскрывающегося раздела справки
 function HelpItem({
   icon,
   title,

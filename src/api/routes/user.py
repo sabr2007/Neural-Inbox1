@@ -67,7 +67,7 @@ async def update_settings(
             current_settings["notifications"] = data.notifications.model_dump()
             user.settings = current_settings
 
-        await session.flush()
+        await session.commit()
         await session.refresh(user)
 
         # Parse stored settings for response
@@ -93,6 +93,6 @@ async def complete_onboarding(user_id: int = Depends(get_user_id)):
         user_repo = UserRepository(session)
         user = await user_repo.get_or_create(user_id)
         user.onboarding_done = True
-        await session.flush()
+        await session.commit()
 
         return {"success": True, "message": "Onboarding completed"}
