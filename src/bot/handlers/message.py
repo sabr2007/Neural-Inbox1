@@ -49,18 +49,18 @@ WEBAPP_REDIRECT_PATTERNS = [
     # Item management (edit, delete, move)
     r'\bудали\b', r'\bудалить\b', r'\bизмени\b', r'\bизменить\b',
     r'\bредактируй\b', r'\bредактировать\b', r'\bотредактируй\b',
-    r'\bперенеси\b', r'\bперенести\b', r'\bпереместить\b', r'\bпереместi\b',
-    r'\bотметь\b', r'\bотметить\b', r'\bзавершить\b', r'\bзаверши\b',
+    r'\bперенеси\b', r'\bперенести\b', r'\bпереместi\b',
+    r'\bотметь\b', r'\bотметить\b', r'\bзаверши\b',
 
     # Send/export requests
-    r'\bотправь\b', r'\bотправить\b', r'\bпришли\b', r'\bприслать\b',
+    r'\bотправь\b', r'\bпришли\b', r'\bприслать\b',
     r'\bэкспорт\b', r'\bэкспортируй\b', r'\bскачать\b', r'\bскачай\b',
 
     # View/open requests
     r'\bоткрой\b', r'\bоткрыть\b', r'\bпросмотр\b', r'\bпросмотреть\b',
 
     # Status/settings
-    r'\bстатус\b', r'\bнастройки\b', r'\bнастроить\b', r'\bстатистика\b',
+    r'\bстатус\b', r'\bнастройки\b', r'\bстатистика\b',
 ]
 WEBAPP_REDIRECT_REGEX = re.compile('|'.join(WEBAPP_REDIRECT_PATTERNS), re.IGNORECASE)
 
