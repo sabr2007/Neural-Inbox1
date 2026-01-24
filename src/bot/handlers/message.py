@@ -309,23 +309,46 @@ async def handle_text(message: Message) -> None:
     # Show typing indicator
     await message.bot.send_chat_action(chat_id=message.chat.id, action=ChatAction.TYPING)
 
-    # Detect and parse URLs (enrich content with up to 3 links)
+    # Detect and parse URLs (enrich content with brief summaries)
     urls = extract_urls(text)
     if urls:
         url_parser = URLParser()
         enrichments = []
 
-        # Process up to 3 URLs
-        for url in urls[:3]:
+        # Limits to prevent token bloat
+        MAX_URLS = 3
+        MAX_CHARS_PER_URL = 500  # Brief summary per link
+        MAX_TOTAL_ENRICHMENT = 1200  # Total limit for all URL content
+        total_chars = 0
+
+        for url in urls[:MAX_URLS]:
+            if total_chars >= MAX_TOTAL_ENRICHMENT:
+                break
+
             try:
                 result = await url_parser.parse(url)
                 if not result.is_error and result.text:
-                    enrichments.append(f"[{url}]\n{result.text}")
+                    # Truncate to brief summary
+                    url_text = result.text[:MAX_CHARS_PER_URL]
+                    if len(result.text) > MAX_CHARS_PER_URL:
+                        url_text = url_text.rsplit(' ', 1)[0] + "..."
+
+                    # Check total limit
+                    if total_chars + len(url_text) > MAX_TOTAL_ENRICHMENT:
+                        remaining = MAX_TOTAL_ENRICHMENT - total_chars
+                        if remaining > 100:
+                            url_text = url_text[:remaining].rsplit(' ', 1)[0] + "..."
+                        else:
+                            break
+
+                    title_part = f" ({result.title})" if result.title else ""
+                    enrichments.append(f"[{url}]{title_part}\n{url_text}")
+                    total_chars += len(url_text)
             except Exception as e:
                 logger.warning(f"Failed to parse URL {url}: {e}")
 
         if enrichments:
-            text = f"{text}\n\n--- Содержимое ссылок ---\n" + "\n\n".join(enrichments)
+            text = f"{text}\n\n--- Краткое содержание ссылок ---\n" + "\n\n".join(enrichments)
 
     # 2. Process with agent
     await process_with_agent(message, text, ItemSource.TEXT.value)
