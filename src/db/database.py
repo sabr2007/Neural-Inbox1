@@ -15,9 +15,9 @@ from src.db.models import Base
 def _get_connect_args() -> dict:
     """Get connection arguments based on SSL requirements."""
     if config.database.ssl:
+        # Use default SSL context with proper certificate verification
+        # Trusts system CA certificates (works with Neon, Railway, Supabase, etc.)
         ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
         return {"ssl": ssl_context}
     return {}
 
