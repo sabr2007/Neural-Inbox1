@@ -4,6 +4,8 @@ Supports YouTube, Twitter/X, Telegram, articles, and generic pages.
 """
 import re
 import logging
+import socket
+import ipaddress
 from urllib.parse import urlparse
 
 import httpx
@@ -20,6 +22,76 @@ YOUTUBE_PATTERN = re.compile(
 )
 TWITTER_PATTERN = re.compile(r'(?:twitter\.com|x\.com)/\w+/status/(\d+)')
 TELEGRAM_PATTERN = re.compile(r't\.me/([^/]+)/(\d+)')
+
+# Blocked hostnames (case-insensitive)
+BLOCKED_HOSTNAMES = {
+    'localhost',
+    'localhost.localdomain',
+    'ip6-localhost',
+    'ip6-loopback',
+}
+
+
+def is_ip_blocked(ip_str: str) -> bool:
+    """Check if an IP address is internal/blocked for SSRF protection."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        # Block private, loopback, link-local, reserved, and multicast addresses
+        return (
+            ip.is_private or
+            ip.is_loopback or
+            ip.is_link_local or
+            ip.is_reserved or
+            ip.is_multicast or
+            ip.is_unspecified
+        )
+    except ValueError:
+        return False
+
+
+def is_url_safe(url: str) -> tuple[bool, str]:
+    """
+    Validate URL to prevent SSRF attacks.
+    Returns (is_safe, error_message).
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False, "Некорректный URL"
+
+    # Only allow http and https schemes
+    if parsed.scheme not in ('http', 'https'):
+        return False, f"Недопустимая схема URL: {parsed.scheme}"
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False, "URL не содержит хоста"
+
+    hostname_lower = hostname.lower()
+
+    # Block known localhost hostnames
+    if hostname_lower in BLOCKED_HOSTNAMES:
+        return False, "Доступ к localhost запрещён"
+
+    # Check if hostname is an IP address
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if is_ip_blocked(str(ip)):
+            return False, "Доступ к внутренним IP-адресам запрещён"
+    except ValueError:
+        # Not an IP, it's a hostname - resolve and check
+        try:
+            # Resolve hostname to IP addresses
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+            for family, _, _, _, sockaddr in addr_info:
+                ip_str = sockaddr[0]
+                if is_ip_blocked(ip_str):
+                    return False, "Доступ к внутренним IP-адресам запрещён"
+        except socket.gaierror:
+            # Can't resolve - let the request fail naturally
+            pass
+
+    return True, ""
 
 
 def extract_urls(text: str) -> list[str]:
@@ -38,6 +110,12 @@ class URLParser:
 
     async def parse(self, url: str) -> ExtractedContent:
         """Parse URL and extract content."""
+        # SSRF protection: validate URL before any network request
+        is_safe, error_msg = is_url_safe(url)
+        if not is_safe:
+            logger.warning(f"Blocked potentially malicious URL: {url} - {error_msg}")
+            return ExtractedContent.from_error(error_msg, source_type="url")
+
         try:
             parsed = urlparse(url)
             domain = parsed.netloc.lower()
