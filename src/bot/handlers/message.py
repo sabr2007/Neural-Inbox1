@@ -455,7 +455,7 @@ async def handle_document(message: Message) -> None:
         elif ext in (".docx", ".doc"):
             extractor = DocumentExtractor()
             result = await extractor.extract(file_path)
-            source = ItemSource.PDF.value
+            source = ItemSource.DOCUMENT.value
         else:
             await message.reply(f"Формат {ext} пока не поддерживается")
             return

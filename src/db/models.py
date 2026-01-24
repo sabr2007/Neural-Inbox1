@@ -40,6 +40,7 @@ class ItemSource(str, PyEnum):
     VOICE = "voice"
     PHOTO = "photo"
     PDF = "pdf"
+    DOCUMENT = "document"  # .docx, .doc и другие документы
     FORWARD = "forward"
     LINK = "link"
 
