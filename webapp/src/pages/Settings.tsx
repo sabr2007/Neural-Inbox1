@@ -7,8 +7,10 @@ import {
 import {
   fetchUserSettings,
   updateUserSettings,
-  NotificationSettings
+  NotificationSettings,
+  UserSettingsResponse
 } from '../api/client'
+import { useToast } from '../hooks/useToast'
 
 // Часовые пояса по регионам
 const TIMEZONES = [
@@ -47,6 +49,7 @@ interface SettingsProps {
 
 export default function Settings({ onBack }: SettingsProps) {
   const queryClient = useQueryClient()
+  const { showError } = useToast()
   const [timezoneOpen, setTimezoneOpen] = useState(false)
   const [helpSection, setHelpSection] = useState<string | null>(null)
 
@@ -57,7 +60,29 @@ export default function Settings({ onBack }: SettingsProps) {
 
   const mutation = useMutation({
     mutationFn: updateUserSettings,
-    onSuccess: () => {
+    onMutate: async (newSettings) => {
+      await queryClient.cancelQueries({ queryKey: ['user-settings'] })
+      const previous = queryClient.getQueryData<UserSettingsResponse>(['user-settings'])
+      queryClient.setQueryData<UserSettingsResponse>(['user-settings'], (old) => {
+        if (!old) return old
+        return {
+          ...old,
+          timezone: newSettings.timezone ?? old.timezone,
+          settings: {
+            ...old.settings,
+            notifications: newSettings.notifications ?? old.settings.notifications,
+          },
+        }
+      })
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['user-settings'], context.previous)
+      }
+      showError('Не удалось сохранить настройки')
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['user-settings'] })
     },
   })
@@ -206,34 +231,37 @@ export default function Settings({ onBack }: SettingsProps) {
 
           <div className="bg-tg-secondary-bg rounded-xl overflow-hidden divide-y divide-tg-bg">
             {/* Напоминания о задачах */}
-            <label className="flex items-center justify-between px-4 py-3 cursor-pointer">
+            <label className={`flex items-center justify-between px-4 py-3 cursor-pointer ${mutation.isPending ? 'opacity-70' : ''}`}>
               <span className="text-tg-text">Напоминания о задачах</span>
               <input
                 type="checkbox"
                 checked={notifications.task_reminders}
                 onChange={(e) => handleNotificationChange('task_reminders', e.target.checked)}
+                disabled={mutation.isPending}
                 className="w-5 h-5 rounded accent-primary"
               />
             </label>
 
             {/* Ежедневный дайджест */}
-            <label className="flex items-center justify-between px-4 py-3 cursor-pointer">
+            <label className={`flex items-center justify-between px-4 py-3 cursor-pointer ${mutation.isPending ? 'opacity-70' : ''}`}>
               <span className="text-tg-text">Ежедневный дайджест</span>
               <input
                 type="checkbox"
                 checked={notifications.daily_digest}
                 onChange={(e) => handleNotificationChange('daily_digest', e.target.checked)}
+                disabled={mutation.isPending}
                 className="w-5 h-5 rounded accent-primary"
               />
             </label>
 
             {/* Еженедельный обзор */}
-            <label className="flex items-center justify-between px-4 py-3 cursor-pointer">
+            <label className={`flex items-center justify-between px-4 py-3 cursor-pointer ${mutation.isPending ? 'opacity-70' : ''}`}>
               <span className="text-tg-text">Еженедельный обзор</span>
               <input
                 type="checkbox"
                 checked={notifications.weekly_review}
                 onChange={(e) => handleNotificationChange('weekly_review', e.target.checked)}
+                disabled={mutation.isPending}
                 className="w-5 h-5 rounded accent-primary"
               />
             </label>
@@ -249,25 +277,27 @@ export default function Settings({ onBack }: SettingsProps) {
 
           <div className="bg-tg-secondary-bg rounded-xl overflow-hidden divide-y divide-tg-bg">
             {/* Переключатель */}
-            <label className="flex items-center justify-between px-4 py-3 cursor-pointer">
+            <label className={`flex items-center justify-between px-4 py-3 cursor-pointer ${mutation.isPending ? 'opacity-70' : ''}`}>
               <span className="text-tg-text">Включить тихие часы</span>
               <input
                 type="checkbox"
                 checked={notifications.dnd_enabled}
                 onChange={(e) => handleNotificationChange('dnd_enabled', e.target.checked)}
+                disabled={mutation.isPending}
                 className="w-5 h-5 rounded accent-primary"
               />
             </label>
 
             {/* Диапазон времени */}
             {notifications.dnd_enabled && (
-              <div className="px-4 py-3 flex items-center gap-4">
+              <div className={`px-4 py-3 flex items-center gap-4 ${mutation.isPending ? 'opacity-70' : ''}`}>
                 <div className="flex-1">
                   <label className="text-sm text-tg-hint">С</label>
                   <input
                     type="time"
                     value={notifications.dnd_start}
                     onChange={(e) => handleNotificationChange('dnd_start', e.target.value)}
+                    disabled={mutation.isPending}
                     className="w-full mt-1 px-3 py-2 bg-tg-bg rounded-lg text-tg-text"
                   />
                 </div>
@@ -277,6 +307,7 @@ export default function Settings({ onBack }: SettingsProps) {
                     type="time"
                     value={notifications.dnd_end}
                     onChange={(e) => handleNotificationChange('dnd_end', e.target.value)}
+                    disabled={mutation.isPending}
                     className="w-full mt-1 px-3 py-2 bg-tg-bg rounded-lg text-tg-text"
                   />
                 </div>

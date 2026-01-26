@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Folder, ChevronRight } from 'lucide-react'
 import { cn, haptic } from '@/lib/utils'
-import { fetchProjects, createProject, Project } from '@/api/client'
+import { fetchProjects, createProject, Project, ProjectsListResponse } from '@/api/client'
 import { ProjectCardSkeleton } from '@/components/Skeleton'
+import { useToast } from '@/hooks/useToast'
 
 interface ProjectsProps {
   onProjectSelect: (projectId: number) => void
@@ -22,9 +23,11 @@ const PROJECT_COLORS = [
 
 export default function Projects({ onProjectSelect }: ProjectsProps) {
   const queryClient = useQueryClient()
+  const { showError } = useToast()
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [newProjectName, setNewProjectName] = useState('')
   const [newProjectColor, setNewProjectColor] = useState(PROJECT_COLORS[0])
+  const tempIdRef = useRef(-1)
 
   const { data, isLoading } = useQuery({
     queryKey: ['projects'],
@@ -33,12 +36,46 @@ export default function Projects({ onProjectSelect }: ProjectsProps) {
 
   const createMutation = useMutation({
     mutationFn: createProject,
-    onSuccess: () => {
+    onMutate: async (newProject) => {
+      await queryClient.cancelQueries({ queryKey: ['projects'] })
+      const previous = queryClient.getQueryData<ProjectsListResponse>(['projects'])
+
+      // Create optimistic project with temporary negative ID
+      const tempId = tempIdRef.current--
+      const optimisticProject: Project = {
+        id: tempId,
+        name: newProject.name,
+        color: newProject.color,
+        emoji: undefined,
+        item_count: 0,
+        created_at: new Date().toISOString(),
+      }
+
+      queryClient.setQueryData<ProjectsListResponse>(['projects'], (old) => {
+        if (!old) return { projects: [optimisticProject], total: 1 }
+        return {
+          ...old,
+          projects: [...old.projects, optimisticProject],
+          total: old.total + 1,
+        }
+      })
+
       haptic('success')
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
       setShowCreateForm(false)
       setNewProjectName('')
       setNewProjectColor(PROJECT_COLORS[0])
+
+      return { previous, tempId }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['projects'], context.previous)
+      }
+      haptic('error')
+      showError('Не удалось создать проект')
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
   })
 

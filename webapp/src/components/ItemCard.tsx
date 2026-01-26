@@ -3,57 +3,102 @@ import { Check, Paperclip, Loader2, Trash2, Repeat } from 'lucide-react'
 import { cn, formatRelativeDate, getTypeEmoji, haptic } from '@/lib/utils'
 import { Item, completeItem, deleteItem } from '@/api/client'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useToast } from '@/hooks/useToast'
 
 interface ItemCardProps {
   item: Item
   onClick?: () => void
 }
 
+// Helper to update item in cache across all query keys
+function updateItemInCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  itemId: number,
+  updater: (item: Item) => Item | null // return null to remove
+) {
+  const queryKeys = [['items'], ['tasks'], ['calendar'], ['projects']]
+  queryKeys.forEach((queryKey) => {
+    queryClient.setQueriesData<{ items?: Item[] } | Item[]>(
+      { queryKey },
+      (old) => {
+        if (!old) return old
+        // Handle { items: Item[] } structure
+        if ('items' in old && Array.isArray(old.items)) {
+          const updated = old.items
+            .map((i) => (i.id === itemId ? updater(i) : i))
+            .filter((i): i is Item => i !== null)
+          return { ...old, items: updated }
+        }
+        // Handle Item[] structure
+        if (Array.isArray(old)) {
+          return old
+            .map((i) => (i.id === itemId ? updater(i) : i))
+            .filter((i): i is Item => i !== null)
+        }
+        return old
+      }
+    )
+  })
+}
+
 export default function ItemCard({ item, onClick }: ItemCardProps) {
   const queryClient = useQueryClient()
+  const { showError } = useToast()
   const [isCompleting, setIsCompleting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
   const completeMutation = useMutation({
     mutationFn: () => completeItem(item.id),
-    onMutate: () => {
+    onMutate: async () => {
       setIsCompleting(true)
       haptic('success')
-    },
-    onSuccess: () => {
-      // Invalidate all relevant queries
-      queryClient.invalidateQueries({ queryKey: ['items'] })
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
-      queryClient.invalidateQueries({ queryKey: ['calendar'] })
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['items'] })
+      await queryClient.cancelQueries({ queryKey: ['tasks'] })
+      // Optimistically update to 'done'
+      updateItemInCache(queryClient, item.id, (i) => ({ ...i, status: 'done' as const }))
     },
     onError: (error) => {
       console.error('Failed to complete item:', error)
       haptic('error')
+      showError('Не удалось отметить как выполненное')
+      // Rollback
+      updateItemInCache(queryClient, item.id, (i) => ({ ...i, status: item.status }))
     },
     onSettled: () => {
       setIsCompleting(false)
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
   })
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteItem(item.id),
-    onMutate: () => {
+    onMutate: async () => {
       setIsDeleting(true)
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ['items'] })
+      await queryClient.cancelQueries({ queryKey: ['tasks'] })
+      // Optimistically remove item
+      updateItemInCache(queryClient, item.id, () => null)
     },
     onSuccess: () => {
       haptic('success')
-      queryClient.invalidateQueries({ queryKey: ['items'] })
-      queryClient.invalidateQueries({ queryKey: ['tasks'] })
-      queryClient.invalidateQueries({ queryKey: ['calendar'] })
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
     onError: (error) => {
       console.error('Failed to delete item:', error)
       haptic('error')
+      showError('Не удалось удалить')
+      // Note: Can't easily rollback a delete, rely on invalidation
     },
     onSettled: () => {
       setIsDeleting(false)
+      queryClient.invalidateQueries({ queryKey: ['items'] })
+      queryClient.invalidateQueries({ queryKey: ['tasks'] })
+      queryClient.invalidateQueries({ queryKey: ['calendar'] })
+      queryClient.invalidateQueries({ queryKey: ['projects'] })
     },
   })
 
@@ -80,7 +125,8 @@ export default function ItemCard({ item, onClick }: ItemCardProps) {
       className={cn(
         'px-4 py-3 bg-tg-bg border-b border-tg-secondary-bg',
         'active:bg-tg-secondary-bg transition-colors cursor-pointer',
-        isCompleted && 'opacity-60'
+        isCompleted && 'opacity-60',
+        isDeleting && 'fade-out'
       )}
     >
       <div className="flex items-start gap-3">

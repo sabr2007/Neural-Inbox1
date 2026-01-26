@@ -7,6 +7,7 @@ import Projects from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import Settings from './pages/Settings'
 import SearchDrawer from './components/SearchDrawer'
+import { ToastProvider } from './components/Toast'
 
 // Telegram WebApp type declaration
 declare global {
@@ -137,23 +138,29 @@ export default function App() {
 
   // Settings page has its own layout
   if (view.type === 'settings') {
-    return <Settings onBack={handleBackFromSettings} />
+    return (
+      <ToastProvider>
+        <Settings onBack={handleBackFromSettings} />
+      </ToastProvider>
+    )
   }
 
   return (
-    <Layout currentTab={currentTab} onTabChange={handleTabChange} onSettingsClick={handleSettingsClick}>
-      {view.type === 'project' ? (
-        <ProjectDetail projectId={view.projectId} onBack={handleBackFromProject} />
-      ) : (
-        <>
-          {view.tab === 'inbox' && <Inbox />}
-          {view.tab === 'tasks' && <Tasks />}
-          {view.tab === 'calendar' && <Calendar />}
-          {view.tab === 'projects' && <Projects onProjectSelect={handleProjectSelect} />}
-        </>
-      )}
+    <ToastProvider>
+      <Layout currentTab={currentTab} onTabChange={handleTabChange} onSettingsClick={handleSettingsClick}>
+        {view.type === 'project' ? (
+          <ProjectDetail projectId={view.projectId} onBack={handleBackFromProject} />
+        ) : (
+          <>
+            {view.tab === 'inbox' && <Inbox />}
+            {view.tab === 'tasks' && <Tasks />}
+            {view.tab === 'calendar' && <Calendar />}
+            {view.tab === 'projects' && <Projects onProjectSelect={handleProjectSelect} />}
+          </>
+        )}
 
-      <SearchDrawer open={searchOpen} onClose={() => setSearchOpen(false)} />
-    </Layout>
+        <SearchDrawer open={searchOpen} onClose={() => setSearchOpen(false)} />
+      </Layout>
+    </ToastProvider>
   )
 }
